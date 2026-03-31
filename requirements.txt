@@ -1,0 +1,6 @@
+numpy
+neat-python
+pygame
+pandas
+memory_profiler
+scipy

@@ -1,0 +1,45 @@
+# IpaVerse: Diario del Ecosistema Artificial y Evolutivo
+
+## Visión General
+IpaVerse es un entorno de alta presión diseñado para simular la evolución darwiniana de organismos de inteligencia artificial mediante el algoritmo NEAT (NeuroEvolution of Augmenting Topologies). Posee un modelo de **Evolución Continua (Steady-State)** y **Memoria Recurrente**. La simulación se ejecuta en una matriz condensada ("The Minimalist Arena") de **1200x700** con un límite termodinámico estricto de **50 agentes concurrentes**.
+
+## Genética y Redes Neuronales (Topología de 7 Salidas)
+- **Memoria Temporal Recurrente:** Los organismos retienen activaciones nodales ocultas generación tras generación simulando "recuerdos a corto plazo".
+- El cerebo lee **13 parámetros de entrada**, como `Blood_Scent` (radar local de muertes) y mediciones de Rayos visuales contra las paredes geográficas.
+- El cerebro decodifica **7 nodos de salida (Outputs)** divididos en Acción Físicomotriz y Contra-Evolución:
+  1. `Turn_Angle`: Timón de rotación.
+  2. `Velocity_Thrust`: Propulsión motriz base.
+  3. `Emit_Signal`: Frecuencia radial de comunicación o ruido.
+  4. `Bite_Action`: Gatillo de Especialización Carnívora.
+  5. `Camouflage_Active` (The Ghost Gene): Desaparece de los sensores del radar enemigo a costo metabólico alto.
+  6. `Pulse_Action`: Emisión inteligente de ondas de choque matemáticas anti-depredadores.
+  7. `Overdrive`: Sobrecarga adrenalínica ignorando los topes físicos de velocidad global.
+
+## Trophic Cascades & Mecánicas Defensivas
+1. **Carnivorismo Permanente:** Activar `Bite_Action` convierte al agente en Depredador de por vida. Pierde la habilidad innata de alimentarse de flora pasiva (comida verde) y es castigado con el triple (x3) de metabolismo basal.
+2. **Daño de Espinas (Passive Thorns):** Morder no es libre. El atacante sacrifica pasivamente `0.05` de energía por cada intento de mordedura errático, previniendo cacerías estáticas.
+3. **Spawn Protection:** Los recién nacidos gozan de 100 frames de inmunidad absoluta para evitar cacerías injustas contra las paredes ("Spawn Trapping").
+4. **Metabolismo y Energy Bloat:** Todo límite biológico está fijado en `100.0` puntos de energía físicos. Si un ente se infla egoístamente por encima de `80.0`, su gasto metabólico por rotación e inercia se multiplica x1.5 forzando el drenaje en cadena ("Anti-Aging Campers").
+
+## Refugios Tácticos (Geometría Estática)
+- **Arbustos (Thickets):** Generaciones verdes de radios aleatorios donde los agentes dentro adquieren *Sigilo* automático anulando su señal biológica.
+- **Madrigueras (Burrows):** Pozos abisales morados que brindan inmunidad absoluta física (no pueden recibir mordidas adentro) pero multiplican a x2 la penalización de quemadura metabólica por segundo y expulsan o inyectan un vector explosivo alejando a cualquier agente que acampe más del límite establecido.
+
+## Morfogénesis en Tiempo Real (Speciation by Shape)
+El Engine dejó atrás sus renderizados de masa en manchas únicas. Los organismos mutan de forma Físicamente visible en tiempo real según sus hitos evolutivos, dibujados tecnológicamente mediante "Hard-Lights" (Muros poligonales huecos luminosos):
+1. **El Depredador (Triángulo):** Si su código cruza el umbral hostil, su morfología colapsa a una **Punta de Lanza** o Flecha anclada exactamente sobre su ángulo de rotación (`Heading Angle`). Sus ataques ahora parecen apuñalar visualmente a otros en el lienzo. Adicionalmente, los Depredadores *Legendarios (+10 kills confirmadas)* materializan internamente un segundo triángulo rojo sangre en su núcleo indicando su estatus "Apex".
+2. **El Sabio (Pentágono):** Geometría superior prioritaria designada pasivamente a todo organismo cuya "Complejidad Estructural Computacional de Cerebro" exceda un 20% (x1.2) al promedio actual poblacional del servidor.
+3. **El Explorador (Rombo):** Las células que invoquen asiduamente el Mutante de Adrenalina (`Out 7: Overdrive`) excediendo la base máxima en picos continuos por más de 200 iteraciones ininterrumpidas son recompensadas geométricamente mutando a un Diamante con estelas ampliadas.
+4. **La Presa Pura (Círculo):** Forma predeterminada base de todo ente nacido en la Generación 0 sin ramificaciones fenotípicas ni traumas biológicos procesados.
+
+*Nota Científica:* Para prevenir que los gigantes de la tabla alimenticia devoren visualmente la resolución gráfica del campo de visión (1200x700), todos los aumentos de volumen crecen rigurosamente atados a fórmulas **Logarítmicas de Energía** (`np.log`), encapsulando eficientemente "bestias" dentro de modelos densos e intensivos pero proporcionalmente minúsculos de interfaz gráfica.
+
+## The Glow Engine & Arte Generativo Definitivo
+- **Kinetic Chromatics (Eléctrica del Fenotipo):** Al invocar el Overdrive, el color salta de sus rangos biológicos naturales hacia el **Cyan Translúcido o Violetas Eléctricos**, mientras duplican visualmente el largor de sus colas trazando el mapa. Si por el contrario cometen Homicidios inter-especies, su línea vital se marca irreparablemente en Rojo Profundo.
+- **Pulsos Cinéticos Ópticos (Onda Expansiva):** Cuando las mentes estructuradas logran gatillar `Out 6: Pulse_Action` consumiendo el 30% absoluto de sus barras de vida, el lienzo dibuja anillos masivos de refracción gris en Alpha expandiéndose sobre el plano repeliendo violentamente al enemigo fuera del área matemáticamente.
+- **Pure-Tone Alpha:** El Antiguo Engine basado en sumas algorítmicas (Additive Blending / Blooming Multiplicativo) fue refactorizado y reemplazado por siluetas pulidas `SRCALPHA`. Ya no ocurren bloqueos lumínicos donde manadas amontonadas saturan pantallas en Blanco Ciego impidiendo la lectura óptica; ahora todos retienen su pureza cromática saturada simultáneamente sin importar el ruido poblacional.
+
+## The Big Crunch y El Oráculo (Manual Reset)
+El entorno posee supresores físicos y cataclismos bajo un subsistema de "God-Mode" activados manualmente (Inundaciones masivas de calorías verdes, Radiación de Cripta selectiva borrando el 50% de las mentes al azar, y Tormentas de Meteoritos que golpean físicamente cuadrantes destrozando colisiones).
+Pulsando `[BACKSPACE]` el servidor colapsa bajo un Pozo Gravitatorio (`Big Crunch`) chupando literalmente todos los polígonos sobrevivientes al epicentro de aniquilación y barajando el mundo orgánico y táctico una vez más.
+Como cierre, la Terminal transfiere todo log evolutivo vital (`Alpha age / Generación Dominante / Muerte global`) sobre JSONs históricos a la librería madre de `/history/` encapsulado por **El Oráculo**.
