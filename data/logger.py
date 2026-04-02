@@ -21,7 +21,7 @@ class EvolutionLogger:
             "pop_size": pop_size,
             "species_count": species_count
         })
-        print(f"[Gen {generation}] Max Fit: {best_fitness:.2f} | Avg: {avg_fitness:.2f} | Pop: {pop_size} | Species: {species_count}")
+        print(f"[Camada {generation}] Aptitud Máx: {best_fitness:.2f} | Promedio: {avg_fitness:.2f} | Población: {pop_size} | Especies: {species_count}")
 
     def save(self):
         if self.history:

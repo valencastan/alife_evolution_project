@@ -1,45 +1,247 @@
 # IpaVerse: Diario del Ecosistema Artificial y Evolutivo
+# Documento Conceptual — Versión 2.0 (Universo Infinito)
 
 ## Visión General
-IpaVerse es un entorno de alta presión diseñado para simular la evolución darwiniana de organismos de inteligencia artificial mediante el algoritmo NEAT (NeuroEvolution of Augmenting Topologies). Posee un modelo de **Evolución Continua (Steady-State)** y **Memoria Recurrente**. La simulación se ejecuta en una matriz condensada ("The Minimalist Arena") de **1200x700** con un límite termodinámico estricto de **50 agentes concurrentes**.
 
-## Genética y Redes Neuronales (Topología de 7 Salidas)
-- **Memoria Temporal Recurrente:** Los organismos retienen activaciones nodales ocultas generación tras generación simulando "recuerdos a corto plazo".
-- El cerebo lee **13 parámetros de entrada**, como `Blood_Scent` (radar local de muertes) y mediciones de Rayos visuales contra las paredes geográficas.
-- El cerebro decodifica **7 nodos de salida (Outputs)** divididos en Acción Físicomotriz y Contra-Evolución:
-  1. `Turn_Angle`: Timón de rotación.
-  2. `Velocity_Thrust`: Propulsión motriz base.
-  3. `Emit_Signal`: Frecuencia radial de comunicación o ruido.
-  4. `Bite_Action`: Gatillo de Especialización Carnívora.
-  5. `Camouflage_Active` (The Ghost Gene): Desaparece de los sensores del radar enemigo a costo metabólico alto.
-  6. `Pulse_Action`: Emisión inteligente de ondas de choque matemáticas anti-depredadores.
-  7. `Overdrive`: Sobrecarga adrenalínica ignorando los topes físicos de velocidad global.
+IpaVerse es un entorno de alta presión diseñado para simular la evolución darwiniana
+de organismos de inteligencia artificial mediante el algoritmo NEAT (NeuroEvolution of
+Augmenting Topologies). Implementa un modelo de **Simulación Infinita Continua** con
+**Memoria Recurrente** y **Deriva Genética en Segundo Plano**.
 
-## Trophic Cascades & Mecánicas Defensivas
-1. **Carnivorismo Permanente:** Activar `Bite_Action` convierte al agente en Depredador de por vida. Pierde la habilidad innata de alimentarse de flora pasiva (comida verde) y es castigado con el triple (x3) de metabolismo basal.
-2. **Daño de Espinas (Passive Thorns):** Morder no es libre. El atacante sacrifica pasivamente `0.05` de energía por cada intento de mordedura errático, previniendo cacerías estáticas.
-3. **Spawn Protection:** Los recién nacidos gozan de 100 frames de inmunidad absoluta para evitar cacerías injustas contra las paredes ("Spawn Trapping").
-4. **Metabolismo y Energy Bloat:** Todo límite biológico está fijado en `100.0` puntos de energía físicos. Si un ente se infla egoístamente por encima de `80.0`, su gasto metabólico por rotación e inercia se multiplica x1.5 forzando el drenaje en cadena ("Anti-Aging Campers").
+La simulación se ejecuta en una arena de **800x600** con un límite termodinámico
+estricto de **50 agentes concurrentes**. Cada ejecución crea un **Mundo con nombre
+propio** cuyo historial evolutivo se persiste automáticamente en archivos JSON
+navegables.
+
+A diferencia de simuladores tradicionales basados en generaciones discretas, IpaVerse
+no reinicia el mundo entre ciclos evolutivos. La evolución de NEAT ocurre
+silenciosamente cada 600 ticks: los nuevos genomas se acumulan en una cola de
+cerebros (Dead Queue) y se asignan a agentes que mueren y reaparecen, manteniendo
+la continuidad del ecosistema sin interrupciones.
+
+
+## Genética y Redes Neuronales (Topología Recurrente de 13×7)
+
+### Memoria Temporal Recurrente
+Los organismos retienen activaciones nodales ocultas entre ticks sucesivos, simulando
+"recuerdos a corto plazo". Esto permite que los cerebros desarrollen comportamientos
+secuenciales complejos como emboscadas, huidas coordinadas y patrullaje territorial.
+
+### 13 Entradas Sensoriales
+El cerebro lee parámetros ambientales mediante rayos sectoriales:
+  - Distancia a Pared (3 rayos: izquierda, centro, derecha)
+  - Distancia a Comida (3 rayos: flora pasiva verde)
+  - Distancia a Agentes (3 rayos: otros organismos)
+  - Energía Propia (nivel de vida normalizado 0-1)
+  - Señal Recibida (comunicación radial por decaimiento con distancia)
+  - Olor a Sangre (energía máxima de vecinos cercanos < 120 unidades)
+  - Velocidad del Objetivo (velocidad del agente más próximo normalizada)
+
+### 7 Salidas Neuronales (Acciones)
+  1. Girar: Timón de rotación angular (±0.08 rad/tick)
+  2. Acelerar: Propulsión motriz base (velocidad máxima 6.0)
+  3. Señal: Emisión de comunicación radial (alcance 300 unidades)
+  4. Morder: Gatillo de especialización carnívora (umbral > 0.5)
+  5. Camuflaje: Invisibilidad al radar enemigo (umbral > 0.7, costo 0.05/tick)
+  6. Pulso Cinético: Onda expansiva anti-depredadores (−30 energía, requiere
+     complejidad neural superior al promedio)
+  7. Sobremarcha: Sobrecarga motriz 1.5x (umbral > 0.7, costo 0.02/tick)
+
+
+## Cascadas Tróficas y Canibalismo
+
+### Cadena Alimenticia
+  Flora Pasiva → Herbívoros → Depredadores → Titanes Legendarios
+
+### Carnivorismo Permanente
+Activar Morder (salida > 0.5) convierte al agente en Depredador de por vida:
+  - Pierde la capacidad de alimentarse de flora pasiva
+  - Metabolismo basal multiplicado por 1.5x
+  - Al primer mordisco exitoso obtiene +30 de energía de bonificación ("First Blood")
+  - Ganancia mínima garantizada de 30 energía por presa (incluso si la víctima
+    estaba desnutrida)
+  - Sin penalización de rotación — giran con eficiencia 1.0 (igual que presas)
+  - Sin penalización de saturación energética (>80) — pueden acumular reservas
+
+### Canibalismo entre Depredadores
+Los depredadores pueden atacarse y comerse entre sí. Cuando un depredador mata a
+otro depredador, hereda su kill count completo además del +1 de la propia kill.
+Ejemplo: Un depredador con 3 kills mata a uno con 4 kills → termina con 8 kills
+(3 + 4 + 1) y puede convertirse en Legendario de golpe.
+
+### Depredador Legendario (≥7 kills)
+  - Velocidad base incrementada permanentemente en un 5%
+  - Shadow Trail visual: estela gruesa oscura de 4px
+  - Flecha indicadora púrpura con ★{kills} sobre su cabeza
+  - Pulso visual de 15 frames al alcanzar el umbral
+  - Al comer a otro Legendario, heredan sus kills → escalamiento exponencial
+
+### Mecánicas Defensivas
+  - Daño de Espinas (Passive Thorns): −0.05 energía por cada mordida
+  - Spawn Protection: 100 frames de inmunidad absoluta post-nacimiento
+  - Pulso Cinético: Onda expansiva que expulsa carnívoros en radio de 100 unidades
+    (requiere complejidad neural >promedio y 30 energía)
+
 
 ## Refugios Tácticos (Geometría Estática)
-- **Arbustos (Thickets):** Generaciones verdes de radios aleatorios donde los agentes dentro adquieren *Sigilo* automático anulando su señal biológica.
-- **Madrigueras (Burrows):** Pozos abisales morados que brindan inmunidad absoluta física (no pueden recibir mordidas adentro) pero multiplican a x2 la penalización de quemadura metabólica por segundo y expulsan o inyectan un vector explosivo alejando a cualquier agente que acampe más del límite establecido.
 
-## Morfogénesis en Tiempo Real (Speciation by Shape)
-El Engine dejó atrás sus renderizados de masa en manchas únicas. Los organismos mutan de forma Físicamente visible en tiempo real según sus hitos evolutivos, dibujados tecnológicamente mediante "Hard-Lights" (Muros poligonales huecos luminosos):
-1. **El Depredador (Triángulo):** Si su código cruza el umbral hostil, su morfología colapsa a una **Punta de Lanza** o Flecha anclada exactamente sobre su ángulo de rotación (`Heading Angle`). Sus ataques ahora parecen apuñalar visualmente a otros en el lienzo. Adicionalmente, los Depredadores *Legendarios (+10 kills confirmadas)* materializan internamente un segundo triángulo rojo sangre en su núcleo indicando su estatus "Apex".
-2. **El Sabio (Pentágono):** Geometría superior prioritaria designada pasivamente a todo organismo cuya "Complejidad Estructural Computacional de Cerebro" exceda un 20% (x1.2) al promedio actual poblacional del servidor.
-3. **El Explorador (Rombo):** Las células que invoquen asiduamente el Mutante de Adrenalina (`Out 7: Overdrive`) excediendo la base máxima en picos continuos por más de 200 iteraciones ininterrumpidas son recompensadas geométricamente mutando a un Diamante con estelas ampliadas.
-4. **La Presa Pura (Círculo):** Forma predeterminada base de todo ente nacido en la Generación 0 sin ramificaciones fenotípicas ni traumas biológicos procesados.
+### Arbustos (Thickets) — 5 por mapa
+Zonas verdes translúcidas de radio aleatorio (49-91 px). Cualquier agente dentro
+adquiere camuflaje automático gratuito sin costo metabólico, desapareciendo de los
+sensores enemigos. Visualmente palpitan con jitter sinusoidal.
 
-*Nota Científica:* Para prevenir que los gigantes de la tabla alimenticia devoren visualmente la resolución gráfica del campo de visión (1200x700), todos los aumentos de volumen crecen rigurosamente atados a fórmulas **Logarítmicas de Energía** (`np.log`), encapsulando eficientemente "bestias" dentro de modelos densos e intensivos pero proporcionalmente minúsculos de interfaz gráfica.
+### Madrigueras (Burrows) — 3 por mapa
+Pozos púrpuras de radio 21-35 px. Brindan inmunidad absoluta a mordidas pero:
+  - Metabolismo multiplicado x2 dentro
+  - Expulsión forzada después de 150 frames (5 segundos)
+  - Vector explosivo de 80 unidades al ser expulsado
+  - Los frames de burrow se recuperan gradualmente fuera
 
-## The Glow Engine & Arte Generativo Definitivo
-- **Kinetic Chromatics (Eléctrica del Fenotipo):** Al invocar el Overdrive, el color salta de sus rangos biológicos naturales hacia el **Cyan Translúcido o Violetas Eléctricos**, mientras duplican visualmente el largor de sus colas trazando el mapa. Si por el contrario cometen Homicidios inter-especies, su línea vital se marca irreparablemente en Rojo Profundo.
-- **Pulsos Cinéticos Ópticos (Onda Expansiva):** Cuando las mentes estructuradas logran gatillar `Out 6: Pulse_Action` consumiendo el 30% absoluto de sus barras de vida, el lienzo dibuja anillos masivos de refracción gris en Alpha expandiéndose sobre el plano repeliendo violentamente al enemigo fuera del área matemáticamente.
-- **Pure-Tone Alpha:** El Antiguo Engine basado en sumas algorítmicas (Additive Blending / Blooming Multiplicativo) fue refactorizado y reemplazado por siluetas pulidas `SRCALPHA`. Ya no ocurren bloqueos lumínicos donde manadas amontonadas saturan pantallas en Blanco Ciego impidiendo la lectura óptica; ahora todos retienen su pureza cromática saturada simultáneamente sin importar el ruido poblacional.
 
-## The Big Crunch y El Oráculo (Manual Reset)
-El entorno posee supresores físicos y cataclismos bajo un subsistema de "God-Mode" activados manualmente (Inundaciones masivas de calorías verdes, Radiación de Cripta selectiva borrando el 50% de las mentes al azar, y Tormentas de Meteoritos que golpean físicamente cuadrantes destrozando colisiones).
-Pulsando `[BACKSPACE]` el servidor colapsa bajo un Pozo Gravitatorio (`Big Crunch`) chupando literalmente todos los polígonos sobrevivientes al epicentro de aniquilación y barajando el mundo orgánico y táctico una vez más.
-Como cierre, la Terminal transfiere todo log evolutivo vital (`Alpha age / Generación Dominante / Muerte global`) sobre JSONs históricos a la librería madre de `/history/` encapsulado por **El Oráculo**.
+## Anti-Camping de Paredes
+
+Para eliminar la estrategia degenerativa de acampar en los bordes del mapa:
+  - Radio de detección ampliado: 50 píxeles del borde
+  - Fuerza de repulsión: 6.0 empujando hacia el centro (inescapable)
+  - Penalización metabólica: 5.0x (mortal a corto plazo)
+Los agentes que intentan quedarse contra las paredes son expulsados violentamente
+hacia el caos central y su gasto energético se dispara. Vivir en el borde es una
+sentencia de muerte.
+
+
+## Materialización Aleatoria (Respawn)
+
+Los agentes muertos no reaparecen en las esquinas — se materializan en posiciones
+completamente aleatorias del mapa (margen 60px de los bordes):
+  - Si spawn cerca de comida (<80px): energía inicial 100 (ventaja)
+  - Si spawn lejos de comida: energía inicial 80 (desventaja)
+  - Animación visual: anillo dorado expansivo de 30 frames
+  - Protección post-spawn: 100 frames de invulnerabilidad
+
+### Mitosis (Reproducción Asexual)
+Los agentes con ≥90 energía se dividen espontáneamente en dos:
+  - Padre e hijo reciben 45 energía cada uno
+  - El hijo hereda el cerebro, la clase y la dirección opuesta del padre
+  - 100 frames de invulnerabilidad para el hijo
+
+
+## Morfogénesis Visual (Speciation by Shape)
+
+Los organismos mutan de forma visible en tiempo real mediante polígonos Hard-Light:
+
+  1. El Depredador (Triángulo) — Punta de lanza afilada (1.8x radio) orientada
+     hacia su ángulo de navegación. Base ancha (1.0x radio, separación 137°) 
+     como cola. Los Legendarios (≥7 kills) materializan un segundo triángulo
+     rojo interno indicando estatus Apex.
+
+  2. El Sabio (Pentágono) — Asignado a organismos cuya complejidad neural exceda
+     el 120% del promedio poblacional. Prioridad visual sobre Explorador.
+
+  3. El Explorador (Rombo) — Desbloqueado al mantener velocidad >6.0 durante
+     60+ frames consecutivos ininterrumpidos.
+
+  4. La Presa Pura (Círculo) — Forma predeterminada base con línea direccional.
+
+Todos los tamaños escalan logarítmicamente (np.log) para evitar que agentes de
+alta energía dominen visualmente el campo.
+
+
+## Deriva Genética (Evolución Infinita en Segundo Plano)
+
+La evolución de NEAT ocurre silenciosamente cada 600 ticks (~20 segundos a 30fps):
+
+  1. Se evalúa el fitness de todos los agentes (edad + energía × 0.1)
+  2. NEAT ejecuta selección natural, reproducción y mutación genética
+  3. Los nuevos 50 genomas se compilan en un Pool de Cerebros (Dead Queue)
+  4. Cuando un agente muere y reaparece, recibe un cerebro del pool evolucionado
+     en vez de clonar al Alfa
+  5. Si el pool se agota, se recurre al comportamiento clásico de clonar al Alfa
+  6. Los agentes vivos nunca pierden su cerebro — la evolución es orgánica
+
+El HUD muestra "Deriva Genética: ACTIVA" durante los 3 segundos posteriores.
+La consola imprime el número de generación y estado del pool.
+
+
+## El Oráculo — Sistema de Historia Persistente
+
+### Registro Automático (cada 1200 ticks)
+El Oráculo analiza el ecosistema y clasifica la era dominante:
+  - Los Herbívoros Pasivos (verde)
+  - Los Depredadores Agresivos (rojo)
+  - Los Sociables Inteligentes (amarillo, alta complejidad neural)
+  - Los Exploradores Rápidos (azul, alta velocidad)
+  - Los Titanes Legendarios (púrpura, ≥7 kills)
+
+Cada snapshot se guarda en history/{nombre_mundo}/epoch_TIMESTAMP.json con:
+  - Timestamp legible, era dominante, complejidad del alfa
+  - Kills máximas, población, edad promedio, generación genética actual
+
+### Registro del Oráculo Post-Mortem (cada 100 muertes)
+El Oráculo emite un mensaje en el HUD con datos estadísticos de la era actual.
+
+### Mundos con Nombre
+Al iniciar la simulación, el usuario ingresa un nombre para su mundo. Toda la
+historia se organiza en subcarpetas de history/{nombre_mundo}/, permitiendo
+ejecutar múltiples mundos independientes y navegar su historia desde el menú.
+
+
+## God Mode — Intervenciones Manuales
+
+  - [M] Meteorito: Golpe físico que mata agentes en el radio del cursor
+  - [F] Inundación: Regenera toda la comida del mapa
+  - [R] Radiación: Elimina el 50% de los agentes al azar
+  - [Click] Mini-meteorito en el punto clickeado
+  - [ESPACIO] Big Crunch: Colapso gravitatorio que succiona todos los agentes
+    al centro y reinicia la geografía del mundo
+  - [ESC] Volver al Menú Principal
+
+### Extinción Total
+Si todos los agentes mueren, se presenta una pantalla con dos opciones:
+  - REINICIAR MUNDO: Recrea la población desde cero manteniendo la historia
+  - VOLVER AL MENÚ: Regresa al menú principal para crear un mundo nuevo
+
+
+## Interfaz Visual
+
+### Panel Lateral (HUD)
+  - Nombre del mundo (título)
+  - Población total / depredadores vivos / herbívoros pasivos
+  - Edad y complejidad neural del Alfa
+  - Nivel de zoom actual
+  - Estado de Deriva Genética (ACTIVA / EN ESPERA)
+  - Mensajes del Oráculo (resaltados en amarillo)
+
+### Radar Neuronal del Alfa
+Gráfico radar heptagonal en tiempo real que visualiza las 7 salidas neuronales
+del agente Alfa como un polígono cyan pulsante sobre un marco gris de referencia.
+Cada vértice representa una acción neuronal con su etiqueta completa en español.
+Las activaciones están clampeadas [0.1, 1.0] para nunca exceder el borde gris.
+
+### Indicadores Visuales en la Simulación
+  - Flecha blanca + "A": Agente Alfa (más longevo)
+  - Flecha púrpura + "★N": Depredador Legendario con N kills
+  - Anillo dorado expansivo: Materialización de nuevo agente
+  - Chispas rojas: Evento de depredación
+  - Anillo gris expansivo: Pulso cinético
+  - Estela gruesa oscura: Shadow Trail de Legendario
+  - Doble hélice de ADN (partículas): Evento de clonación/mitosis
+  - Cámara auto-zoom: Se acerca al Alfa cuando está cazando activamente
+
+
+## Notas de Diseño
+
+La filosofía de IpaVerse es que la complejidad emerge del caos. No se diseñan
+comportamientos — se crean presiones selectivas y se deja que la evolución
+encuentre las estrategias óptimas.
+
+Los parámetros de balance están calibrados para que ningún arquetipo sea
+inherentemente dominante: los depredadores mueren rápido sin presas, las presas
+necesitan inteligencia para sobrevivir la cacería, los exploradores sacrifican
+estabilidad por movilidad, y los camuflados sacrifican energía por supervivencia.
+
+El resultado es un ecosistema dinámico donde la composición poblacional fluctúa
+naturalmente entre eras dominadas por diferentes arquetipos, creando una narrativa
+emergente que el Oráculo registra para la posteridad.
+
+---
+"En IpaVerse, la vida no se diseña — emerge."

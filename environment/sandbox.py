@@ -50,6 +50,7 @@ class Sandbox:
         self.clones_produced_this_tick = []
         self.predation_events = [] # (x, y, killer_color)
         self.pulse_events = [] # (x, y) visually rendered refractive waves
+        self.spawn_events = [] # (x, y) for spawn animation rings
         
         self._spawn_geography()
         
@@ -83,6 +84,7 @@ class Sandbox:
         
         self.clones_produced_this_tick.clear()
         self.pulse_events.clear()
+        self.spawn_events.clear()
         
         self.agent_positions[:num_agents, 0] = np.random.uniform(0, self.width, num_agents)
         self.agent_positions[:num_agents, 1] = np.random.uniform(0, self.height, num_agents)
@@ -202,6 +204,7 @@ class Sandbox:
         self.clones_produced_this_tick.clear()
         self.predation_events.clear()
         self.pulse_events.clear()
+        self.spawn_events.clear()
         alive_mask = self.agent_alive
         alive_indices = np.where(alive_mask)[0]
         
@@ -230,13 +233,13 @@ class Sandbox:
 
         # Active Camouflage Check
         self.is_camouflaged.fill(False)
-        ghost_attempts = (actions[:, 4] > 0.8) & alive_mask & (self.agent_energy > 0.5)
+        ghost_attempts = (actions[:, 4] > 0.7) & alive_mask & (self.agent_energy > 0.3)
         self.is_camouflaged[ghost_attempts] = True
         self.is_camouflaged |= self.in_thicket
         
         # Overdrive Check (Output 7)
         self.is_overdriving.fill(False)
-        overdrive_attempts = (actions[:, 6] > 0.8) & alive_mask & (self.agent_energy > 5.0)
+        overdrive_attempts = (actions[:, 6] > 0.7) & alive_mask & (self.agent_energy > 3.0)
         self.is_overdriving[overdrive_attempts] = True
         
         # Kinetic Pulse Check (Output 6)
@@ -266,6 +269,7 @@ class Sandbox:
         turn_demand = (actions[:, 0] - 1.0) * 0.5
         thrust_raw = actions[:, 1] - 0.5
         thrust = np.where(self.is_overdriving, thrust_raw * 1.5, np.clip(thrust_raw, -0.5, self.max_speed))
+        thrust[self.kill_count >= 7] *= 1.05 # 5% Legendary speed boost
         
         self.agent_signals = np.clip(actions[:, 2] - 0.5, 0.0, 1.0)
         bite_demand = actions[:, 3]
@@ -284,7 +288,7 @@ class Sandbox:
         
         # Modifier Penalties for Carnivores
         turn_delta = np.clip(turn_demand, -0.08, 0.08)
-        turn_delta[self.is_carnivore] *= 0.9 # 10% Drag
+        turn_delta[self.is_carnivore] *= 1.0 # No Drag
         
         self.agent_angles[alive_mask] = normalize_angle(self.agent_angles[alive_mask] + turn_delta[alive_mask])
         
@@ -302,13 +306,13 @@ class Sandbox:
         fast_agents = (speed_sq > self.max_speed**2) & alive_mask
         self.high_speed_frames[fast_agents] += 1
         self.high_speed_frames[~fast_agents] = 0
-        new_explorers = self.high_speed_frames > 200
+        new_explorers = self.high_speed_frames > 60
         self.is_explorer[new_explorers] = True
         
         energy_cost = 0.2 + (speed_sq * 0.05)
-        energy_cost[self.is_carnivore] *= 2.55 # Carnivore Metabolism Buff (Was 3.0)
-        energy_cost[ghost_attempts] += 0.1 # Active neural camo cost
-        energy_cost[self.is_overdriving] += 0.05 # Overdrive adrenaline cost
+        energy_cost[self.is_carnivore] *= 1.5 # Carnivore Metabolism Buff (Was 2.55)
+        energy_cost[ghost_attempts] += 0.05 # Active neural camo cost
+        energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost (was 0.05)
         energy_cost[self.in_burrow] *= 2.0 # Burrow stagnation multiplier
         
         # Burrow Force Eviction
@@ -326,7 +330,7 @@ class Sandbox:
         # Wall Repulsion (Anti-Stagnation)
         dist_x = np.minimum(self.agent_positions[:, 0], self.width - self.agent_positions[:, 0])
         dist_y = np.minimum(self.agent_positions[:, 1], self.height - self.agent_positions[:, 1])
-        near_wall = (dist_x < 30.0) | (dist_y < 30.0)
+        near_wall = (dist_x < 50.0) | (dist_y < 50.0)
         wall_huggers = near_wall & alive_mask
         
         if np.any(wall_huggers):
@@ -334,11 +338,11 @@ class Sandbox:
             diffs = np.array([cx, cy]) - self.agent_positions[wall_huggers]
             dists = np.linalg.norm(diffs, axis=1) + 1e-5
             dirs = diffs / dists[:, None]
-            self.agent_positions[wall_huggers] += dirs * 1.5
-            energy_cost[wall_huggers] *= 2.0 # Camping penalty
+            self.agent_positions[wall_huggers] += dirs * 6.0
+            energy_cost[wall_huggers] *= 5.0 # Camping penalty
             
         # Energy Saturation Cap & Bloating Penalty
-        energy_cost[self.agent_energy > 80.0] *= 1.5
+        energy_cost[(self.agent_energy > 80.0) & ~self.is_carnivore] *= 1.5
         self.agent_energy -= energy_cost
         self.agent_energy = np.clip(self.agent_energy, 0.0, 100.0)
         
@@ -363,10 +367,14 @@ class Sandbox:
                     dist = dist_a[b_idx, victim]
                     if dist < 15.0:
                         # Successful bite!
-                        self.agent_energy[b_idx] += self.agent_energy[victim]
+                        self.agent_energy[b_idx] += np.maximum(30.0, self.agent_energy[victim])
                         self.predation_events.append((self.agent_positions[victim][0], self.agent_positions[victim][1], victim))
                         self.agent_energy[victim] = -10.0 # Force Kill
                         self.agent_energy[b_idx] -= 0.05 # Thorns passive recoil
+                        
+                        # Canibalismo entre depredadores: herencia de kills
+                        if self.is_carnivore[victim]:
+                            self.kill_count[b_idx] += self.kill_count[victim]
                         
                         if self.agent_energy[victim] <= 0:
                             self.kill_count[b_idx] += 1
@@ -404,16 +412,27 @@ class Sandbox:
             alpha_id = alive_post[np.argmax(self.agent_age[alive_post])]
             for died in dead_indices:
                 self.oracle_deaths += 1
-                self.agent_positions[died, 0] = np.random.choice([10, self.width-10])
-                self.agent_positions[died, 1] = np.random.uniform(10, self.height-10)
-                self.agent_angles[died] = self.agent_angles[alpha_id]
-                self.agent_energy[died] = 100.0
+                # Materialización aleatoria en el mapa
+                spawn_x = np.random.uniform(60, self.width - 60)
+                spawn_y = np.random.uniform(60, self.height - 60)
+                self.agent_positions[died, 0] = spawn_x
+                self.agent_positions[died, 1] = spawn_y
+                self.agent_angles[died] = np.random.uniform(0, 2 * np.pi)
+                
+                # Energía basada en proximidad a comida
+                if np.any(self.food_active):
+                    food_dists = np.linalg.norm(self.food_positions[self.food_active] - [spawn_x, spawn_y], axis=1)
+                    self.agent_energy[died] = 100.0 if np.min(food_dists) < 80.0 else 80.0
+                else:
+                    self.agent_energy[died] = 100.0
+                
                 self.agent_age[died] = 0
-                self.is_carnivore[died] = self.is_carnivore[alpha_id] # Inherit class logic
-                self.kill_count[died] = 0 # Fresh kill count
-                self.invulnerability_frames[died] = 100 # Spawn Safety
+                self.is_carnivore[died] = self.is_carnivore[alpha_id]
+                self.kill_count[died] = 0
+                self.invulnerability_frames[died] = 100
                 self.is_explorer[died] = False
                 self.high_speed_frames[died] = 0
+                self.spawn_events.append((spawn_x, spawn_y))
                 self.clones_produced_this_tick.append((alpha_id, died))
                 self.agent_alive[died] = True 
                 

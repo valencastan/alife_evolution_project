@@ -4,17 +4,19 @@ import sys
 from interface.oracle import Oracle
 
 class Visualizer:
-    def __init__(self, sandbox, god_mode, fps=30):
+    def __init__(self, sandbox, god_mode, fps=30, world_name="default"):
         pygame.init()
         self.sandbox = sandbox
         self.god_mode = god_mode
         self.fps = fps
+        self.world_name = world_name
+        self.should_quit = False
         
         # Dual-Layer Renderer for HUD Aspect Ratio scaling (Letterboxing)
         self.base_w = int(sandbox.width)  # 800
         self.base_h = int(sandbox.height) # 600
         self.real_screen = pygame.display.set_mode((1120, 600), pygame.RESIZABLE)
-        pygame.display.set_caption("IpaVerse: Apex Intelligence & Trophic Cascades")
+        pygame.display.set_caption(f"IpaVerse: {world_name}")
         self.virtual_screen = pygame.Surface((self.base_w, self.base_h))
         self.clock = pygame.time.Clock()
         
@@ -42,7 +44,7 @@ class Visualizer:
         self.particles = [] 
         self.trails = {}    
         
-        self.oracle = Oracle()
+        self.oracle = Oracle(world_name=world_name)
         self.oracle_msg = ""
         self.oracle_timer = 0
         self.full_screen_overlay = False
@@ -93,10 +95,13 @@ class Visualizer:
         is_explorer  = self.sandbox.is_explorer[idx]
         
         points = []
-        if is_carnivore: # 3 Points Arrowhead (Forward tip spearheads the angle)
-            points.append((px + radius * 1.5 * np.cos(angle), py + radius * 1.5 * np.sin(angle)))
-            points.append((px + radius * 0.8 * np.cos(angle + 2.6), py + radius * 0.8 * np.sin(angle + 2.6)))
-            points.append((px + radius * 0.8 * np.cos(angle - 2.6), py + radius * 0.8 * np.sin(angle - 2.6)))
+        if is_carnivore: # Triángulo Depredador: punta afilada = cabeza, base ancha = cola
+            head_len = radius * 1.8  # Punta delantera alargada (la "cabeza")
+            tail_len = radius * 1.0  # Vértices traseros más cerca del centro
+            tail_spread = 2.4        # Ángulo de separación trasera (~137°)
+            points.append((px + head_len * np.cos(angle), py + head_len * np.sin(angle)))
+            points.append((px + tail_len * np.cos(angle + tail_spread), py + tail_len * np.sin(angle + tail_spread)))
+            points.append((px + tail_len * np.cos(angle - tail_spread), py + tail_len * np.sin(angle - tail_spread)))
         elif is_smart: # 5 Points Pentagon (Higher Priority than Explorer)
             for i in range(5):
                 points.append((px + radius * np.cos(angle + i * 2*np.pi/5), py + radius * np.sin(angle + i * 2*np.pi/5)))
@@ -149,6 +154,13 @@ class Visualizer:
                     surf = pygame.Surface((rad*2, rad*2), pygame.SRCALPHA)
                     pygame.draw.circle(surf, (150, 150, 150, layer_alpha), (rad, rad), rad, 6)
                     self.virtual_screen.blit(surf, (int(p[0]-rad), int(p[1]-rad)))
+                # Spawn Ring (Expanding golden light)
+                elif p[4] == (255, 220, 100) and p[6] == 40.0:
+                    rad = max(1, int((1.0 - (p[5] / 30.0)) * p[6]))
+                    layer_alpha = int(200 * (p[5] / 30.0))
+                    surf = pygame.Surface((rad*2, rad*2), pygame.SRCALPHA)
+                    pygame.draw.circle(surf, (255, 220, 100, layer_alpha), (rad, rad), rad, 3)
+                    self.virtual_screen.blit(surf, (int(p[0]-rad), int(p[1]-rad)))
                 else:
                     rad = max(1, int((p[5] / 45.0) * p[6]))
                     pygame.draw.circle(self.virtual_screen, p[4], (int(p[0]), int(p[1])), rad)
@@ -177,12 +189,14 @@ class Visualizer:
                 
             if len(self.trails[aid]) > 1:
                 pts = self.trails[aid]
-                c = (200, 20, 20) if self.sandbox.kill_count[aid] >= 7 else (100, 100, 100)
+                is_legendary = self.sandbox.kill_count[aid] >= 7
+                c = (20, 5, 20) if is_legendary else (100, 100, 100)
                 for i in range(len(pts)-1):
-                    alpha = int((i / len(pts)) * 100)
-                    pygame.draw.line(self.virtual_screen, (*c, alpha), pts[i], pts[i+1], 2 if c[0]>100 else 1)
+                    alpha = int((i / len(pts)) * 200) if is_legendary else int((i / len(pts)) * 100)
+                    thickness = 4 if is_legendary else 1
+                    pygame.draw.line(self.virtual_screen, (*c, alpha), pts[i], pts[i+1], thickness)
 
-    def render(self, actions, active_conn_counts):
+    def render(self, actions, active_conn_counts, genetic_drift_active=False):
         # 1. Motion Blur Fading layer
         self.virtual_screen.blit(self.fade_surf, (0,0))
         
@@ -206,8 +220,8 @@ class Visualizer:
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                self.close()
-                sys.exit()
+                self.should_quit = True
+                return
             if event.type == pygame.VIDEORESIZE:
                 self.real_screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
             if event.type == pygame.MOUSEWHEEL:
@@ -220,7 +234,10 @@ class Visualizer:
                     self.god_mode.trigger_flood()
                 elif event.key == pygame.K_r: 
                     self.god_mode.trigger_radiation()
-                elif event.key == pygame.K_BACKSPACE or event.key == pygame.K_ESCAPE:
+                elif event.key == pygame.K_ESCAPE:
+                    self.should_quit = True
+                    return
+                elif event.key == pygame.K_SPACE:
                     self.god_mode.trigger_big_crunch()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: 
                 vx, vy = get_virtual_mouse(event.pos)
@@ -232,19 +249,19 @@ class Visualizer:
         if self.sandbox.oracle_deaths >= 100:
             self.sandbox.oracle_deaths = 0
             if len(alive_indices) > 0:
-                dom, col = self.oracle.compute_archetype(active_conn_counts, actions[:,2], actions[:,1], alive_mask)
-                self.oracle_msg = f"ORACLE POST-MORTEM: The Era is dominated by {dom}."
-                self.oracle_timer = 180 
+                dom, col, stats = self.oracle.compute_archetype(active_conn_counts, actions, self.sandbox)
+                self.oracle_msg = f"ORÁCULO POST-MORTEM: La Era está dominada por {dom}.\n>>> {stats}"
+                self.oracle_timer = 240 
                 self.full_screen_overlay = False
 
         if self.sandbox.big_crunch and self.sandbox.big_crunch_progress > 1.95 and not self.full_screen_overlay:
             if len(alive_indices) > 0:
-                dom, col = self.oracle.compute_archetype(active_conn_counts, actions[:,2], actions[:,1], alive_mask)
+                dom, col, stats = self.oracle.compute_archetype(active_conn_counts, actions, self.sandbox)
                 alpha = alive_indices[np.argmax(self.sandbox.agent_age[alive_indices])]
-                self.oracle.save_epoch(dom, self.sandbox.agent_age[alpha], alpha, active_conn_counts[alpha])
-                self.oracle_msg = f"BIG CRUNCH\nEra of {dom}\nAlpha Complexity: {active_conn_counts[alpha]}\nRestarting Environment..."
+                self.oracle.save_epoch(dom, self.sandbox.agent_age[alpha], alpha, active_conn_counts[alpha], np.max(self.sandbox.kill_count))
+                self.oracle_msg = f"GRAN COLAPSO\nEra de {dom}\nComplejidad del Alfa: {active_conn_counts[alpha]}\n>>> {stats}\nReiniciando Entorno..."
             else:
-                self.oracle_msg = "BIG CRUNCH\nExtinction Reached.\nRestarting Environment..."
+                self.oracle_msg = "GRAN COLAPSO\nExtinción Alcanzada.\nReiniciando Entorno..."
             self.oracle_timer = 240 
             self.full_screen_overlay = True
 
@@ -274,6 +291,10 @@ class Visualizer:
         if len(alive_indices) > 0:
             for px, py in self.sandbox.pulse_events:
                 self.particles.append([px, py, 0, 0, (200, 200, 200), 30, 150.0]) # Pulse Refraction Ring
+            
+            # Spawn Animations (Expanding golden rings)
+            for sx, sy in self.sandbox.spawn_events:
+                self.particles.append([sx, sy, 0, 0, (255, 220, 100), 30, 40.0]) # Spawn Ring
                 
             for p_event in self.sandbox.predation_events:
                 self.trigger_predation_sparks(p_event)
@@ -361,9 +382,25 @@ class Visualizer:
                     if self.sandbox.is_carnivore[idx]:
                         carnivores_alive += 1
                     
+                    px, py = int(pos[0]), int(pos[1])
+                    
+                    # Flecha indicadora del Alfa (blanca, pulsante)
                     if idx == alpha_idx:
-                        px, py = int(pos[0]), int(pos[1])
                         pygame.draw.circle(self.virtual_screen, (255, 255, 255), (px, py), base_radius + 4, 1)
+                        arrow_y = py - base_radius - 14
+                        arrow_pts = [(px, arrow_y + 8), (px - 5, arrow_y), (px + 5, arrow_y)]
+                        pygame.draw.polygon(self.virtual_screen, (255, 255, 255), arrow_pts, 0)
+                        lbl = self.font.render("A", True, (255, 255, 255))
+                        self.virtual_screen.blit(lbl, (px - lbl.get_width()//2, arrow_y - 14))
+                    
+                    # Flecha indicadora del Legendario (púrpura)
+                    if self.sandbox.is_carnivore[idx] and self.sandbox.kill_count[idx] >= 7:
+                        arrow_y = py - base_radius - 14
+                        arrow_pts = [(px, arrow_y + 8), (px - 5, arrow_y), (px + 5, arrow_y)]
+                        pygame.draw.polygon(self.virtual_screen, (180, 0, 255), arrow_pts, 0)
+                        kills = self.sandbox.kill_count[idx]
+                        lbl = self.font.render(f"★{kills}", True, (180, 0, 255))
+                        self.virtual_screen.blit(lbl, (px - lbl.get_width()//2, arrow_y - 14))
 
             if self.laser_timer > 0:
                 self.laser_timer -= 1
@@ -412,42 +449,126 @@ class Visualizer:
             prey_count = len(alive_indices) - carnivores_alive
             
             hud_info = [
-                f"IPA_VERSE APEX TELEMETRY",
-                f"Total Population:  {len(alive_indices)}/50",
-                f"Predators Alive:   {carnivores_alive}",
-                f"Passive Grazers:   {prey_count}",
-                f"Alpha Age (Ticks): {alpha_age}",
-                f"Alpha Complexity:  {active_conn_counts[alpha_idx]}",
-                f"Zoom Level:        {self.camera_zoom:.2f}x"
+                f"MUNDO: {self.world_name.upper()}",
+                f"Población Total:   {len(alive_indices)}/50",
+                f"Depredadores Vivos:{carnivores_alive}",
+                f"Herbívoros Pasivos:{prey_count}",
+                f"Edad del Alfa:     {alpha_age}",
+                f"Complejidad Alfa:  {active_conn_counts[alpha_idx]}",
+                f"Nivel de Zoom:     {self.camera_zoom:.2f}x",
+                f"Deriva Genética:   {'ACTIVA' if genetic_drift_active else 'EN ESPERA'}"
             ]
             if self.oracle_timer > 0 and not self.full_screen_overlay:
-                hud_info.append(self.oracle_msg)
+                for line in self.oracle_msg.split('\n'):
+                    hud_info.append(line)
 
             a_flicker = int(np.random.uniform(170, 255))
             for i, text in enumerate(hud_info):
-                c = (255, 255, 0) if "ORACLE" in text else (200, 200, 200)
+                c = (255, 255, 0) if "ORÁCULO" in text or ">>>" in text else (200, 200, 200)
                 font_to_use = self.large_font if i == 0 else self.font
                 ren = font_to_use.render(text, True, c)
                 ren.set_alpha(a_flicker)
                 self.real_screen.blit(ren, (10, 10 + (25 * i)))
 
-            # Neural Viewer Output Nodes (Alpha)
-            nv_start_y = 10 + (25 * len(hud_info)) + 15
-            nv_ren = self.font.render("ALPHA NEURAL OUTPUTS:", True, (200, 200, 200))
+            # Radar Chart de Red Neuronal (Alpha)
+            nv_start_y = 10 + (25 * len(hud_info)) + 25
+            nv_ren = self.font.render("RED NEURONAL DEL ALFA (Geometría):", True, (200, 200, 200))
             self.real_screen.blit(nv_ren, (10, nv_start_y))
             
-            out_labels = ["Turn", "Thrust", "Comm", "Bite", "Ghost", "Pulse", "Odrive"]
-            for o_idx in range(7):
-                val = actions[alpha_idx, o_idx]
-                c_node = (0, 255, 255) if val > 0.5 else (50, 20, 20)
-                cx = 25 + (o_idx * 43)
-                cy = nv_start_y + 30
-                pygame.draw.circle(self.real_screen, c_node, (cx, cy), 8)
-                lbl = self.font.render(out_labels[o_idx][:3], True, (255, 255, 255))
-                self.real_screen.blit(lbl, (cx - 12, cy + 15))
+            out_labels = ["Girar", "Acelerar", "Señal", "Morder", "Camuflaje", "Pulso Q", "Sobremarcha"]
+            num_outputs = len(out_labels)
+            center_x, center_y = 160, nv_start_y + 110
+            max_r = 70
+            
+            active_points = []
+            bg_points = []
+            for i in range(num_outputs):
+                ang = i * (2 * np.pi / num_outputs) - np.pi / 2
+                bg_px, bg_py = center_x + max_r * np.cos(ang), center_y + max_r * np.sin(ang)
+                bg_points.append((bg_px, bg_py))
+                pygame.draw.line(self.real_screen, (50, 50, 50), (center_x, center_y), (bg_px, bg_py), 1)
+                
+                val = actions[alpha_idx, i]
+                r_val = max(0.1, min(val, 1.0)) # Limitar entre 0.1 y 1.0
+                active_points.append((center_x + (max_r * r_val) * np.cos(ang), center_y + (max_r * r_val) * np.sin(ang)))
+            
+            pygame.draw.polygon(self.real_screen, (50, 50, 50), bg_points, 1)
+            
+            radar_surf = pygame.Surface((320, 320), pygame.SRCALPHA)
+            local_active = [(p[0] - center_x + 160, p[1] - center_y + 160) for p in active_points]
+            
+            pygame.draw.polygon(radar_surf, (0, 200, 255, 80), local_active, 0)
+            pygame.draw.polygon(radar_surf, (0, 255, 255, 200), local_active, 2)
+            self.real_screen.blit(radar_surf, (center_x - 160, center_y - 160))
+            
+            for i in range(num_outputs):
+                ang = i * (2 * np.pi / num_outputs) - np.pi / 2
+                px, py = active_points[i]
+                c_node = (0, 255, 255) if actions[alpha_idx, i] > 0.5 else (50, 50, 100)
+                pygame.draw.circle(self.real_screen, c_node, (int(px), int(py)), 5)
+                
+                lbl = self.font.render(out_labels[i], True, (200, 200, 200))
+                lbl_x = center_x + (max_r + 15) * np.cos(ang)
+                lbl_y = center_y + (max_r + 15) * np.sin(ang)
+                
+                # Alineamiento Dinámico del Texto para evitar cruces
+                if abs(np.cos(ang)) < 0.1: align_x = lbl_x - lbl.get_width() / 2
+                elif np.cos(ang) < 0: align_x = lbl_x - lbl.get_width()
+                else: align_x = lbl_x
+                
+                self.real_screen.blit(lbl, (align_x, lbl_y - lbl.get_height() / 2))
 
         pygame.display.flip()
         self.clock.tick(self.fps)
 
+    def show_extinction_screen(self):
+        """Pantalla de extinción con opciones de reiniciar o salir."""
+        btn_restart = pygame.Rect(self.real_screen.get_width()//2 - 160, self.real_screen.get_height()//2 + 20, 320, 60)
+        btn_exit = pygame.Rect(self.real_screen.get_width()//2 - 160, self.real_screen.get_height()//2 + 100, 320, 60)
+        
+        while True:
+            self.real_screen.fill((5, 5, 8))
+            mx, my = pygame.mouse.get_pos()
+            click = False
+            
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return "EXIT"
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    click = True
+            
+            # Title
+            title = self.large_font.render("EXTINCIÓN TOTAL", True, (255, 50, 50))
+            self.real_screen.blit(title, (self.real_screen.get_width()//2 - title.get_width()//2, self.real_screen.get_height()//3 - 30))
+            
+            sub = self.font.render("Todas las formas de vida han perecido.", True, (200, 200, 200))
+            self.real_screen.blit(sub, (self.real_screen.get_width()//2 - sub.get_width()//2, self.real_screen.get_height()//3 + 20))
+            
+            # Restart button
+            r_hover = btn_restart.collidepoint((mx, my))
+            col_r = (30, 100, 30) if r_hover else (20, 60, 20)
+            pygame.draw.rect(self.real_screen, col_r, btn_restart, border_radius=10)
+            pygame.draw.rect(self.real_screen, (0, 255, 0) if r_hover else (50, 120, 50), btn_restart, 2, border_radius=10)
+            txt_r = self.font.render("REINICIAR MUNDO", True, (255, 255, 255))
+            self.real_screen.blit(txt_r, (btn_restart.centerx - txt_r.get_width()//2, btn_restart.centery - txt_r.get_height()//2))
+            
+            # Exit button
+            e_hover = btn_exit.collidepoint((mx, my))
+            col_e = (100, 30, 30) if e_hover else (60, 20, 20)
+            pygame.draw.rect(self.real_screen, col_e, btn_exit, border_radius=10)
+            pygame.draw.rect(self.real_screen, (255, 0, 0) if e_hover else (120, 50, 50), btn_exit, 2, border_radius=10)
+            txt_e = self.font.render("VOLVER AL MENÚ", True, (255, 255, 255))
+            self.real_screen.blit(txt_e, (btn_exit.centerx - txt_e.get_width()//2, btn_exit.centery - txt_e.get_height()//2))
+            
+            if click:
+                if r_hover:
+                    return "RESTART"
+                if e_hover:
+                    return "EXIT"
+            
+            pygame.display.flip()
+            self.clock.tick(30)
+
     def close(self):
-        pygame.quit()
+        # Don't pygame.quit() — menu needs pygame alive
+        pass
