@@ -1,0 +1,15 @@
+{
+    "world_name": "castan world",
+    "timestamp": 1775485574.515061,
+    "timestamp_readable": "2026-04-06 11:26:14",
+    "era_name": "Era de Los Sociables Inteligentes",
+    "peak_fitness": 13569.0,
+    "alpha_id": 28,
+    "alpha_complexity": 140,
+    "blood_spilled": 2,
+    "tick": 14400,
+    "generation": 24,
+    "population": 50,
+    "avg_age": 3777,
+    "stats_line": "Titanes:0 | Depredadores:2 | Edad Prom:3777 | Récord:2"
+}

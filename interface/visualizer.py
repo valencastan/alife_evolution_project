@@ -148,9 +148,9 @@ class Visualizer:
             p[5] -= 1
             if p[5] > 0:
                 # Discern Pulse expansion (Refraction wave) from generic sparks
-                if p[4] == (200, 200, 200) and p[6] == 150.0:
-                    rad = max(1, int((1.0 - (p[5] / 30.0)) * p[6]))
-                    layer_alpha = int(255 * (p[5] / 30.0))
+                if p[4] == (200, 200, 200) and p[6] == 80.0:
+                    rad = max(1, int((1.0 - (p[5] / 20.0)) * p[6]))
+                    layer_alpha = int(255 * (p[5] / 20.0))
                     surf = pygame.Surface((rad*2, rad*2), pygame.SRCALPHA)
                     pygame.draw.circle(surf, (150, 150, 150, layer_alpha), (rad, rad), rad, 6)
                     self.virtual_screen.blit(surf, (int(p[0]-rad), int(p[1]-rad)))
@@ -290,7 +290,7 @@ class Visualizer:
 
         if len(alive_indices) > 0:
             for px, py in self.sandbox.pulse_events:
-                self.particles.append([px, py, 0, 0, (200, 200, 200), 30, 150.0]) # Pulse Refraction Ring
+                self.particles.append([px, py, 0, 0, (200, 200, 200), 20, 80.0]) # Pulse Refraction Ring (reduced)
             
             # Spawn Animations (Expanding golden rings)
             for sx, sy in self.sandbox.spawn_events:
@@ -334,16 +334,9 @@ class Visualizer:
             self.update_and_draw_trails(alive_indices)
             alpha_idx = alive_indices[np.argmax(self.sandbox.agent_age[alive_indices])]
             
-            # Auto-Zoom Camera targeted on Alpha Biter Context
-            target_zoom = self.manual_zoom
-            target_pos = np.array([self.base_w/2, self.base_h/2], dtype=np.float32)
-            if actions[alpha_idx, 3] > 0.8: # Alpha is Hunting
-                target_zoom = max(self.manual_zoom, 1.8)
-                target_pos = self.sandbox.agent_positions[alpha_idx]
-            
-            # Smooth Camera LERP
-            self.camera_zoom += (target_zoom - self.camera_zoom) * 0.05
-            self.camera_target += (target_pos - self.camera_target) * 0.05
+            # Manual zoom only — auto pursuit zoom removed for clarity
+            self.camera_zoom = self.manual_zoom
+            self.camera_target = np.array([self.base_w/2, self.base_h/2], dtype=np.float32)
             
             if self.last_alpha_id != -1 and self.last_alpha_id != alpha_idx and self.sandbox.agent_alive[alpha_idx]:
                 if not self.sandbox.agent_alive[self.last_alpha_id]: 
@@ -455,7 +448,7 @@ class Visualizer:
                 f"Herbívoros Pasivos:{prey_count}",
                 f"Edad del Alfa:     {alpha_age}",
                 f"Complejidad Alfa:  {active_conn_counts[alpha_idx]}",
-                f"Nivel de Zoom:     {self.camera_zoom:.2f}x",
+                f"Nivel de Zoom:     {self.manual_zoom:.2f}x",
                 f"Deriva Genética:   {'ACTIVA' if genetic_drift_active else 'EN ESPERA'}"
             ]
             if self.oracle_timer > 0 and not self.full_screen_overlay:

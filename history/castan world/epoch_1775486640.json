@@ -1,0 +1,15 @@
+{
+    "world_name": "castan world",
+    "timestamp": 1775486640.3314106,
+    "timestamp_readable": "2026-04-06 11:44:00",
+    "era_name": "Era de Los Depredadores Agresivos",
+    "peak_fitness": 341.0,
+    "alpha_id": 21,
+    "alpha_complexity": 29,
+    "blood_spilled": 0,
+    "tick": 45600,
+    "generation": 76,
+    "population": 50,
+    "avg_age": 138,
+    "stats_line": "Titanes:0 | Depredadores:9 | Edad Prom:138 | Récord:0"
+}

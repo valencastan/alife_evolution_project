@@ -1,0 +1,15 @@
+{
+    "world_name": "castan world",
+    "timestamp": 1775486026.2162194,
+    "timestamp_readable": "2026-04-06 11:33:46",
+    "era_name": "Era de Los Herbívoros Pasivos",
+    "peak_fitness": 15672.0,
+    "alpha_id": 49,
+    "alpha_complexity": 140,
+    "blood_spilled": 3,
+    "tick": 27600,
+    "generation": 46,
+    "population": 50,
+    "avg_age": 1706,
+    "stats_line": "Titanes:0 | Depredadores:1 | Edad Prom:1706 | Récord:3"
+}

@@ -1,0 +1,15 @@
+{
+    "world_name": "prueba3",
+    "timestamp": 1775483953.357247,
+    "timestamp_readable": "2026-04-06 10:59:13",
+    "era_name": "Era de Los Sociables Inteligentes",
+    "peak_fitness": 4384.0,
+    "alpha_id": 0,
+    "alpha_complexity": 140,
+    "blood_spilled": 0,
+    "tick": 6000,
+    "generation": 10,
+    "population": 50,
+    "avg_age": 1856,
+    "stats_line": "Titanes:0 | Depredadores:4 | Edad Prom:1856 | Récord:0"
+}

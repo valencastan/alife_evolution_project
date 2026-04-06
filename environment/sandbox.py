@@ -31,8 +31,8 @@ class Sandbox:
         self.legendary_pulse_frames = 0
         
         # Tactical Shelters
-        self.thickets = np.zeros((5, 3), dtype=np.float32) # x, y, radius
-        self.burrows = np.zeros((3, 3), dtype=np.float32)
+        self.thickets = np.zeros((3, 3), dtype=np.float32) # x, y, radius — 3 thickets (reduced)
+        self.burrows = np.zeros((1, 3), dtype=np.float32)   # 1 burrow only (reduced)
         
         # Stealth & Defense metrics
         self.is_camouflaged = np.zeros(max_capacity, dtype=bool)
@@ -43,6 +43,10 @@ class Sandbox:
         self.invulnerability_frames = np.zeros(max_capacity, dtype=np.int32)
         self.is_explorer = np.zeros(max_capacity, dtype=bool)
         self.high_speed_frames = np.zeros(max_capacity, dtype=np.int32)
+        self.bite_frames    = np.zeros(max_capacity, dtype=np.int32)   # ticks biting (delayed carnivore lock)
+        self.kill_cooldown  = np.zeros(max_capacity, dtype=np.int32)   # post-kill wait
+        self.alarm_pressure = np.zeros(max_capacity, dtype=np.float32) # collective alarm signal
+        self.alarm_timer    = np.zeros(max_capacity, dtype=np.int32)   # alarm duration
         
         self.food_positions = np.zeros((self.num_food, 2), dtype=np.float32)
         self.food_active = np.zeros(self.num_food, dtype=bool)
@@ -81,6 +85,10 @@ class Sandbox:
         self.invulnerability_frames.fill(100)
         self.is_explorer.fill(False)
         self.high_speed_frames.fill(0)
+        self.bite_frames.fill(0)
+        self.kill_cooldown.fill(0)
+        self.alarm_pressure.fill(0.0)
+        self.alarm_timer.fill(0)
         
         self.clones_produced_this_tick.clear()
         self.pulse_events.clear()
@@ -95,10 +103,10 @@ class Sandbox:
         self.food_active.fill(False)
         self._spawn_food(self.num_food)
     def _spawn_geography(self):
-        for i in range(5):
-            self.thickets[i] = [np.random.uniform(100, self.width-100), np.random.uniform(100, self.height-100), np.random.uniform(49, 91)]
-        for i in range(3):
-            self.burrows[i] = [np.random.uniform(100, self.width-100), np.random.uniform(100, self.height-100), np.random.uniform(21, 35)]
+        for i in range(3):  # 3 thickets — terrain is more open and dangerous
+            self.thickets[i] = [np.random.uniform(100, self.width-100), np.random.uniform(100, self.height-100), np.random.uniform(40, 65)]
+        for i in range(1):  # 1 burrow — hiding is a scarce resource
+            self.burrows[i] = [np.random.uniform(150, self.width-150), np.random.uniform(150, self.height-150), np.random.uniform(21, 30)]
         self.predation_events.clear()
 
     def _spawn_food(self, amount, overwrite=False):
@@ -197,6 +205,12 @@ class Sandbox:
             decay = np.maximum(0, 1.0 - (dist_a / 300.0))
             received = np.dot(decay, sig_emissions)
             self.sensory_inputs[active_ids, 10] = np.clip(received, 0.0, 1.0)
+        
+        # Collective alarm pressure overlays input 10 (predation proximity warning)
+        self.sensory_inputs[active_ids, 10] = np.maximum(
+            self.sensory_inputs[active_ids, 10],
+            self.alarm_pressure[active_ids]
+        )
             
         return self.sensory_inputs
 
@@ -279,12 +293,15 @@ class Sandbox:
         
         biters = (bite_demand > 0.5) & alive_mask
         
-        # First Blood Logic
-        new_biters = biters & (~self.is_carnivore)
+        # Sustained biting required for carnivore conversion (30 ticks)
+        self.bite_frames[biters] = np.minimum(self.bite_frames[biters] + 1, 60)
+        self.bite_frames[~biters & alive_mask] = np.maximum(0, self.bite_frames[~biters & alive_mask] - 2)
+        
+        # First Blood Logic: only lock after sustained aggression
+        new_biters = (self.bite_frames >= 30) & (~self.is_carnivore) & alive_mask
         if np.any(new_biters):
             self.agent_energy[new_biters] = np.clip(self.agent_energy[new_biters] + 30.0, 0, 100.0)
-            
-        self.is_carnivore[biters] = True # Permanent lock
+        self.is_carnivore[new_biters] = True  # Permanent lock after threshold
         
         # Modifier Penalties for Carnivores
         turn_delta = np.clip(turn_demand, -0.08, 0.08)
@@ -310,9 +327,9 @@ class Sandbox:
         self.is_explorer[new_explorers] = True
         
         energy_cost = 0.2 + (speed_sq * 0.05)
-        energy_cost[self.is_carnivore] *= 1.5 # Carnivore Metabolism Buff (Was 2.55)
+        energy_cost[self.is_carnivore] *= 1.8 # Carnivores have higher metabolism (was 1.5) — adds pressure to hunt
         energy_cost[ghost_attempts] += 0.05 # Active neural camo cost
-        energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost (was 0.05)
+        energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost
         energy_cost[self.in_burrow] *= 2.0 # Burrow stagnation multiplier
         
         # Burrow Force Eviction
@@ -346,6 +363,16 @@ class Sandbox:
         self.agent_energy -= energy_cost
         self.agent_energy = np.clip(self.agent_energy, 0.0, 100.0)
         
+        # Thicket passive regeneration for herbivores (+0.3/tick)
+        herb_in_thicket = self.in_thicket & ~self.is_carnivore & alive_mask
+        self.agent_energy[herb_in_thicket] = np.minimum(100.0, self.agent_energy[herb_in_thicket] + 0.3)
+        
+        # Alarm timer decay
+        active_alarm = self.alarm_timer > 0
+        self.alarm_timer[active_alarm] -= 1
+        self.alarm_pressure[self.alarm_timer > 0] = self.alarm_timer[self.alarm_timer > 0] / 60.0
+        self.alarm_pressure[self.alarm_timer == 0] = 0.0
+        
         # Distance to all other agents (ignore dead and camouflaged)
         dist_a = np.linalg.norm(self.agent_positions[:, None, :] - self.agent_positions[None, :, :], axis=2)
         np.fill_diagonal(dist_a, np.inf)
@@ -360,17 +387,34 @@ class Sandbox:
         if len(active_biters) > 0 and len(alive_indices) > 1:
             pot_mask = self.agent_alive & (~self.is_camouflaged)
             for b_idx in active_biters:
+                # Post-kill cooldown: predator must wait before hunting again
+                if self.kill_cooldown[b_idx] > 0:
+                    self.kill_cooldown[b_idx] -= 1
+                    continue
                 potentials = np.where(pot_mask)[0]
                 for victim in potentials:
-                    if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0: continue # Absolute immunity
+                    if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0: continue
                     
                     dist = dist_a[b_idx, victim]
                     if dist < 15.0:
                         # Successful bite!
-                        self.agent_energy[b_idx] += np.maximum(30.0, self.agent_energy[victim])
-                        self.predation_events.append((self.agent_positions[victim][0], self.agent_positions[victim][1], victim))
-                        self.agent_energy[victim] = -10.0 # Force Kill
-                        self.agent_energy[b_idx] -= 0.05 # Thorns passive recoil
+                        energy_stolen = np.maximum(20.0, self.agent_energy[victim] * 0.8)
+                        self.agent_energy[b_idx] += energy_stolen
+                        v_pos = self.agent_positions[victim].copy()
+                        self.predation_events.append((v_pos[0], v_pos[1], victim))
+                        self.agent_energy[victim] = -10.0
+                        self.agent_energy[b_idx] -= 0.05
+                        
+                        # Post-kill cooldown
+                        self.kill_cooldown[b_idx] = 50
+                        
+                        # Alarm propagation: nearby herbivores get warned
+                        nearby_prey = np.where(~self.is_carnivore & self.agent_alive)[0]
+                        if len(nearby_prey) > 0:
+                            d_alarm = np.linalg.norm(self.agent_positions[nearby_prey] - v_pos, axis=1)
+                            alarmed = nearby_prey[d_alarm < 150.0]
+                            self.alarm_pressure[alarmed] = 1.0
+                            self.alarm_timer[alarmed] = 60
                         
                         # Canibalismo entre depredadores: herencia de kills
                         if self.is_carnivore[victim]:
@@ -400,7 +444,10 @@ class Sandbox:
                 self.food_active[global_foods_to_die] = False
                 
                 healed_agents = alive_indices[eater_mask]
-                self.agent_energy[healed_agents] = np.clip(self.agent_energy[healed_agents] + 40.0, 0, 100.0)
+                active_food_count = np.sum(self.food_active)
+                food_density_ratio = np.clip(active_food_count / self.num_food, 0.2, 1.0)
+                food_energy = np.clip(40.0 / food_density_ratio, 30.0, 60.0)  # Scarce = more energy
+                self.agent_energy[healed_agents] = np.clip(self.agent_energy[healed_agents] + food_energy, 0, 100.0)
                 self._spawn_food(len(np.unique(global_foods_to_die)))
 
         # 4. Handle Starvation & Core Async Replacement
@@ -427,11 +474,17 @@ class Sandbox:
                     self.agent_energy[died] = 100.0
                 
                 self.agent_age[died] = 0
-                self.is_carnivore[died] = self.is_carnivore[alpha_id]
+                # New agents always spawn as herbivores regardless of alpha type
+                # This prevents predator monoculture — carnivores must re-earn that status
+                self.is_carnivore[died] = False
                 self.kill_count[died] = 0
                 self.invulnerability_frames[died] = 100
                 self.is_explorer[died] = False
                 self.high_speed_frames[died] = 0
+                self.bite_frames[died] = 0
+                self.kill_cooldown[died] = 0
+                self.alarm_pressure[died] = 0.0
+                self.alarm_timer[died] = 0
                 self.spawn_events.append((spawn_x, spawn_y))
                 self.clones_produced_this_tick.append((alpha_id, died))
                 self.agent_alive[died] = True 
@@ -440,7 +493,10 @@ class Sandbox:
             self.agent_alive[died_this_tick] = False
 
         # Independent High-End Clone Spawns (Mitosis)
-        ready_to_clone = np.where(self.agent_alive & (self.agent_energy >= 90.0))[0]
+        # Herbivores reproduce faster (75 energy) — gives prey population recovery advantage
+        herb_clone_ready = self.agent_alive & ~self.is_carnivore & (self.agent_energy >= 75.0)
+        carn_clone_ready = self.agent_alive & self.is_carnivore  & (self.agent_energy >= 90.0)
+        ready_to_clone = np.where(herb_clone_ready | carn_clone_ready)[0]
         for parent_id in ready_to_clone:
             inactive_slots = np.where(~self.agent_alive)[0]
             if len(inactive_slots) > 0:
@@ -453,9 +509,13 @@ class Sandbox:
                 self.agent_age[child_id] = 0
                 self.is_carnivore[child_id] = self.is_carnivore[parent_id]
                 self.kill_count[child_id] = 0
-                self.invulnerability_frames[child_id] = 100 # Mitosis safety 
+                self.invulnerability_frames[child_id] = 100
                 self.is_explorer[child_id] = False
                 self.high_speed_frames[child_id] = 0
+                self.bite_frames[child_id] = 0
+                self.kill_cooldown[child_id] = 0
+                self.alarm_pressure[child_id] = 0.0
+                self.alarm_timer[child_id] = 0
                 self.clones_produced_this_tick.append((parent_id, child_id))
         
         self.agent_age[self.agent_alive] += 1
