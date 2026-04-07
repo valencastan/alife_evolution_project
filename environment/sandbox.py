@@ -29,6 +29,7 @@ class Sandbox:
         self.is_carnivore = np.zeros(max_capacity, dtype=bool)
         self.kill_count = np.zeros(max_capacity, dtype=np.int32)
         self.legendary_pulse_frames = 0
+        self.true_sight = np.zeros(max_capacity, dtype=bool)
         
         # Tactical Shelters
         self.thickets = np.zeros((3, 3), dtype=np.float32) # x, y, radius — 3 thickets (reduced)
@@ -55,6 +56,7 @@ class Sandbox:
         self.predation_events = [] # (x, y, killer_color)
         self.pulse_events = [] # (x, y) visually rendered refractive waves
         self.spawn_events = [] # (x, y) for spawn animation rings
+        self.new_carnivores_this_tick = np.zeros(max_capacity, dtype=bool)
         
         self._spawn_geography()
         
@@ -89,11 +91,11 @@ class Sandbox:
         self.kill_cooldown.fill(0)
         self.alarm_pressure.fill(0.0)
         self.alarm_timer.fill(0)
-        
+        self.true_sight.fill(False)
         self.clones_produced_this_tick.clear()
         self.pulse_events.clear()
         self.spawn_events.clear()
-        
+        self.new_carnivores_this_tick.fill(False)
         self.agent_positions[:num_agents, 0] = np.random.uniform(0, self.width, num_agents)
         self.agent_positions[:num_agents, 1] = np.random.uniform(0, self.height, num_agents)
         self.agent_angles[:num_agents] = np.random.uniform(0, 2*np.pi, num_agents)
@@ -300,7 +302,13 @@ class Sandbox:
         # First Blood Logic: only lock after sustained aggression
         new_biters = (self.bite_frames >= 30) & (~self.is_carnivore) & alive_mask
         if np.any(new_biters):
-            self.agent_energy[new_biters] = np.clip(self.agent_energy[new_biters] + 30.0, 0, 100.0)
+            self.agent_energy[new_biters] = 100.0 # Full heal when mutating into a predator
+            self.new_carnivores_this_tick[new_biters] = True # Mark for neural bias injection
+            # 15% probability of developing True Sight (Olfato/Rastreo)
+            new_trackers = np.random.random(size=np.sum(new_biters)) < 0.15
+            self.true_sight[new_biters] = new_trackers
+            if np.any(new_trackers):
+                print("[MUTACIÓN] Un Rastreador ha entrado en el ecosistema... el sigilo ya no es seguro.")
         self.is_carnivore[new_biters] = True  # Permanent lock after threshold
         
         # Modifier Penalties for Carnivores
@@ -326,10 +334,15 @@ class Sandbox:
         new_explorers = self.high_speed_frames > 60
         self.is_explorer[new_explorers] = True
         
+        # Camouflage Break Logic: if moving fast (speed > 50% max), lose camouflage overlay
+        fast_runners = (speed_sq > (self.max_speed * 0.5)**2) & alive_mask
+        self.is_camouflaged[fast_runners] = False
+        
         energy_cost = 0.2 + (speed_sq * 0.05)
-        energy_cost[self.is_carnivore] *= 1.8 # Carnivores have higher metabolism (was 1.5) — adds pressure to hunt
-        energy_cost[ghost_attempts] += 0.05 # Active neural camo cost
+        energy_cost[self.is_carnivore] *= 1.08 # Carnivores have slightly higher metabolism (reduced 40% from 1.8)
+        energy_cost[ghost_attempts] += 0.20 # HEAVY neural camo cost to prevent hiding forever
         energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost
+        energy_cost[self.agent_signals > 0.5] += 0.08 # Semantic filter: metabolic cost to broadcasting noise
         energy_cost[self.in_burrow] *= 2.0 # Burrow stagnation multiplier
         
         # Burrow Force Eviction
@@ -363,9 +376,18 @@ class Sandbox:
         self.agent_energy -= energy_cost
         self.agent_energy = np.clip(self.agent_energy, 0.0, 100.0)
         
-        # Thicket passive regeneration for herbivores (+0.3/tick)
-        herb_in_thicket = self.in_thicket & ~self.is_carnivore & alive_mask
-        self.agent_energy[herb_in_thicket] = np.minimum(100.0, self.agent_energy[herb_in_thicket] + 0.3)
+        # Thicket passive regeneration removed.
+        # Hunger Magnetism (Biological Desperation - Instinct Override)
+        starving_agents = (self.agent_energy < 20.0) & alive_mask & ~self.is_carnivore
+        if np.any(starving_agents) and np.any(self.food_active):
+            active_food = self.food_positions[self.food_active]
+            for aid in np.where(starving_agents)[0]:
+                agent_pos = self.agent_positions[aid]
+                diffs = active_food - agent_pos
+                dists = np.linalg.norm(diffs, axis=1)
+                closest_idx = np.argmin(dists)
+                dir_vec = diffs[closest_idx] / (dists[closest_idx] + 1e-4)
+                self.agent_positions[aid] += dir_vec * 2.5 # Force physical movement towards food
         
         # Alarm timer decay
         active_alarm = self.alarm_timer > 0
@@ -373,11 +395,33 @@ class Sandbox:
         self.alarm_pressure[self.alarm_timer > 0] = self.alarm_timer[self.alarm_timer > 0] / 60.0
         self.alarm_pressure[self.alarm_timer == 0] = 0.0
         
+        # Global Post-Kill Cooldown
+        active_cooldown = self.kill_cooldown > 0
+        self.kill_cooldown[active_cooldown] -= 1
+        
         # Distance to all other agents (ignore dead and camouflaged)
         dist_a = np.linalg.norm(self.agent_positions[:, None, :] - self.agent_positions[None, :, :], axis=2)
         np.fill_diagonal(dist_a, np.inf)
         dist_a[:, ~self.agent_alive] = np.inf
-        dist_a[:, self.is_camouflaged] = np.inf
+        
+        # Titan Tracking: Legendary predators ignore camo within 250 units
+        # Mutants with True Sight ignore camo within their whole vision range
+        legendary_predators = self.is_carnivore & (self.kill_count >= 7)
+        true_sight_predators = self.is_carnivore & self.true_sight
+        camo_mask = self.is_camouflaged.copy()
+        
+        for observer_id in range(self.max_capacity):
+            if not self.agent_alive[observer_id]: continue
+            
+            if true_sight_predators[observer_id]:
+                # "Olfato" total: ignoran el camuflaje estático completamente cerca
+                is_camo_and_far = camo_mask & (dist_a[observer_id] >= self.vision_range)
+                dist_a[observer_id, is_camo_and_far] = np.inf
+            elif legendary_predators[observer_id]:
+                is_camo_and_far = camo_mask & (dist_a[observer_id] >= 250.0)
+                dist_a[observer_id, is_camo_and_far] = np.inf
+            else:
+                dist_a[observer_id, camo_mask] = np.inf
         
         # Spawn protection decreasing safely outside bounds
         self.invulnerability_frames[alive_indices] = np.maximum(0, self.invulnerability_frames[alive_indices] - 1)
@@ -385,47 +429,43 @@ class Sandbox:
         # 2. Bite Collisions / Active Predation
         active_biters = np.where(biters)[0]
         if len(active_biters) > 0 and len(alive_indices) > 1:
-            pot_mask = self.agent_alive & (~self.is_camouflaged)
             for b_idx in active_biters:
-                # Post-kill cooldown: predator must wait before hunting again
                 if self.kill_cooldown[b_idx] > 0:
-                    self.kill_cooldown[b_idx] -= 1
                     continue
-                potentials = np.where(pot_mask)[0]
-                for victim in potentials:
+                
+                # Predators can bite anyone visible to them (handles Titan tracking and normal camo)
+                visible_targets = np.where(dist_a[b_idx] < 15.0)[0]
+                for victim in visible_targets:
                     if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0: continue
                     
-                    dist = dist_a[b_idx, victim]
-                    if dist < 15.0:
-                        # Successful bite!
-                        energy_stolen = np.maximum(20.0, self.agent_energy[victim] * 0.8)
-                        self.agent_energy[b_idx] += energy_stolen
-                        v_pos = self.agent_positions[victim].copy()
-                        self.predation_events.append((v_pos[0], v_pos[1], victim))
-                        self.agent_energy[victim] = -10.0
-                        self.agent_energy[b_idx] -= 0.05
-                        
-                        # Post-kill cooldown
-                        self.kill_cooldown[b_idx] = 50
-                        
-                        # Alarm propagation: nearby herbivores get warned
-                        nearby_prey = np.where(~self.is_carnivore & self.agent_alive)[0]
-                        if len(nearby_prey) > 0:
-                            d_alarm = np.linalg.norm(self.agent_positions[nearby_prey] - v_pos, axis=1)
-                            alarmed = nearby_prey[d_alarm < 150.0]
-                            self.alarm_pressure[alarmed] = 1.0
-                            self.alarm_timer[alarmed] = 60
-                        
-                        # Canibalismo entre depredadores: herencia de kills
-                        if self.is_carnivore[victim]:
-                            self.kill_count[b_idx] += self.kill_count[victim]
-                        
-                        if self.agent_energy[victim] <= 0:
-                            self.kill_count[b_idx] += 1
-                            if self.kill_count[b_idx] > 0 and self.kill_count[b_idx] % 7 == 0:
-                                self.legendary_pulse_frames = 15
-                        
-                        break # Only bite one per tick
+                    # Successful bite!
+                    energy_stolen = np.maximum(40.0, self.agent_energy[victim]) # Massive harvest
+                    self.agent_energy[b_idx] = min(100.0, self.agent_energy[b_idx] + energy_stolen)
+                    v_pos = self.agent_positions[victim].copy()
+                    self.predation_events.append((v_pos[0], v_pos[1], victim))
+                    self.agent_energy[victim] = -10.0
+                    
+                    # Post-kill cooldown
+                    self.kill_cooldown[b_idx] = 50
+                    
+                    # Alarm propagation: nearby herbivores get warned
+                    nearby_prey = np.where(~self.is_carnivore & self.agent_alive)[0]
+                    if len(nearby_prey) > 0:
+                        d_alarm = np.linalg.norm(self.agent_positions[nearby_prey] - v_pos, axis=1)
+                        alarmed = nearby_prey[d_alarm < 150.0]
+                        self.alarm_pressure[alarmed] = 1.0
+                        self.alarm_timer[alarmed] = 60
+                    
+                    # Canibalismo entre depredadores: herencia de kills
+                    if self.is_carnivore[victim]:
+                        self.kill_count[b_idx] += self.kill_count[victim]
+                    
+                    if self.agent_energy[victim] <= 0:
+                        self.kill_count[b_idx] += 1
+                        if self.kill_count[b_idx] > 0 and self.kill_count[b_idx] % 7 == 0:
+                            self.legendary_pulse_frames = 15
+                    
+                    break # Only bite one per tick
         
         # 3. Eating Passive Flora
         if np.any(self.food_active) and np.any(self.agent_alive):

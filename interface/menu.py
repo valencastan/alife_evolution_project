@@ -142,6 +142,12 @@ class MainMenu:
                     if exit_hover: return "EXIT"
 
             elif state == "NAME_INPUT":
+                current_input = self.input_text.strip()
+                world_exists = False
+                if len(current_input) > 0:
+                    test_path = os.path.join("history", current_input, "neat_pop.pkl")
+                    world_exists = os.path.exists(test_path)
+
                 title = self.title_font.render("NOMBRE DEL MUNDO", True, (0, 255, 200))
                 self.screen.blit(title, (self.width//2 - title.get_width()//2, self.height//3 - 60))
                 
@@ -159,13 +165,21 @@ class MainMenu:
                 
                 # Confirm button
                 confirm_hover = btn_confirm.collidepoint((mx, my))
-                self.draw_glowing_rect(temp_surface, (20, 80, 20), btn_confirm, confirm_hover)
+                
+                if world_exists:
+                    btn_color = (180, 150, 20) # Gold
+                    btn_text = "REANUDAR MUNDO"
+                else:
+                    btn_color = (20, 80, 20)   # Green
+                    btn_text = "INICIAR NUEVO"
+                    
+                self.draw_glowing_rect(temp_surface, btn_color, btn_confirm, confirm_hover)
                 self.screen.blit(temp_surface, (0,0))
-                conf_txt = self.font.render("CONFIRMAR", True, (255,255,255))
+                conf_txt = self.font.render(btn_text, True, (255,255,255))
                 self.screen.blit(conf_txt, (btn_confirm.centerx - conf_txt.get_width()//2, btn_confirm.centery - conf_txt.get_height()//2))
                 
-                if click and confirm_hover and len(self.input_text.strip()) > 0:
-                    self.world_name = self.input_text.strip()
+                if click and confirm_hover and len(current_input) > 0:
+                    self.world_name = current_input
                     return "START"
             
             elif state == "HISTORY":

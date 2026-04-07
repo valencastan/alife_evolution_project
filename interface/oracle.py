@@ -2,6 +2,7 @@ import json
 import os
 import time
 import numpy as np
+import pickle
 
 class Oracle:
     """
@@ -71,4 +72,70 @@ class Oracle:
         filename = os.path.join(self.history_dir, f"epoch_{int(time.time())}.json")
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(epoch_data, f, indent=4, ensure_ascii=False)
-        print(f"[ORÁCULO] Historia actualizada: {filename}")
+        # Silent history save
+
+    def save_world(self, population, sandbox, tick):
+        # Guardar Población Completa (Pickle)
+        pop_file = os.path.join(self.history_dir, "neat_pop.pkl")
+        with open(pop_file, 'wb') as f:
+            pickle.dump(population, f)
+            
+        # Guardar Entorno Mínimo (JSON)
+        env_file = os.path.join(self.history_dir, "env_state.json")
+        env_data = {
+            "tick": tick,
+            "food_positions": sandbox.food_positions.tolist(),
+            "food_active": sandbox.food_active.tolist(),
+            "big_crunch_progress": float(sandbox.big_crunch_progress),
+            "agent_age": sandbox.agent_age.tolist(),
+            "is_carnivore": sandbox.is_carnivore.tolist(),
+            "kill_count": sandbox.kill_count.tolist(),
+            "true_sight": sandbox.true_sight.tolist()
+        }
+        with open(env_file, 'w') as f:
+            json.dump(env_data, f)
+            
+        print(f"[ORÁCULO] Estado del mundo guardado exitosamente en tick {tick}.")
+
+    def load_world(self, sandbox):
+        pop_file = os.path.join(self.history_dir, "neat_pop.pkl")
+        env_file = os.path.join(self.history_dir, "env_state.json")
+        
+        population = None
+        tick = 0
+        
+        if os.path.exists(pop_file) and os.path.exists(env_file):
+            try:
+                with open(pop_file, 'rb') as f:
+                    population = pickle.load(f)
+                
+                with open(env_file, 'r') as f:
+                    env_data = json.load(f)
+                    
+                tick = env_data.get("tick", 0)
+                food_pos = np.array(env_data.get("food_positions", sandbox.food_positions))
+                food_act = np.array(env_data.get("food_active", sandbox.food_active), dtype=bool)
+                
+                # Inyectar posiciones de comida
+                sandbox.num_food = len(food_pos)
+                sandbox.food_positions = food_pos
+                sandbox.food_active = food_act
+                sandbox.big_crunch_progress = env_data.get("big_crunch_progress", 0.0)
+                
+                # Biología Restaurada
+                if "agent_age" in env_data:
+                    sandbox.agent_age[:] = np.array(env_data["agent_age"], dtype=np.int32)
+                if "is_carnivore" in env_data:
+                    sandbox.is_carnivore[:] = np.array(env_data["is_carnivore"], dtype=bool)
+                if "kill_count" in env_data:
+                    sandbox.kill_count[:] = np.array(env_data["kill_count"], dtype=np.int32)
+                if "true_sight" in env_data:
+                    sandbox.true_sight[:] = np.array(env_data["true_sight"], dtype=bool)
+                
+                print(f"[ORÁCULO] Mundo '{self.world_name}' restaurado exitosamente desde tick {tick}.")
+            except Exception as e:
+                print(f"[ERROR] Oráculo falló al cargar el mundo: {e}")
+                population = None
+                tick = 0
+                
+        return population, tick

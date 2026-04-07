@@ -1,0 +1,25 @@
+# Entornos Virtuales
+.venv/
+venv/
+env/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller y Compilación
+build/
+dist/
+*.spec
+*.exe
+
+# Datos Dinámicos del Simulador
+history/*/
+logs/*/
+!history/.gitkeep
+!logs/.gitkeep
+
+# IDEs
+.vscode/
+.idea/

@@ -99,19 +99,22 @@ Los organismos mutan de forma visible según su comportamiento, creando una taxo
 - Sin penalizadores metabólicos
 - Color: Verde
 
-### 🔴 El Depredador — Triángulo (Punta de Lanza)
+### 🔴 El Depredador — Triángulo (Rojo Oscuro)
 - Se activa irreversiblemente al morder (`Bite > 0.5`)
 - **No puede** comer flora pasiva — solo carne
-- Metabolismo 1.5x más costoso
-- Ganancia mínima de 30 energía por presa consumida
+- Metabolismo 1.08x más costoso (balance aerodinámico)
+- Roba el 100% de energía por presa consumida (mínimo 40)
 - Puede comer a otros depredadores (canibalismo con herencia de kills)
-- Color: Rojo profundo
 - La punta afilada apunta siempre hacia la dirección de navegación
 
-### 🟡 El Sabio — Pentágono
-- Asignado a organismos cuya complejidad neural supere el 120% del promedio poblacional
-- Mayor capacidad de decisión y adaptación
-- Color: Amarillo
+### 🟣 El Rastreador — Triángulo (Magenta / Púrpura)
+- Probabilidad de mutación del 15% al convertirse en Depredador
+- Posee **Olfato Completo**: Localiza e ignora por completo el estado de Camuflaje (`Oculto`) de las presas en su radio visual.
+- Enemigo natural imperdonable de los agentes camperos.
+
+### 🟡 El Sabio — Circulo Brillo (Blanco / Dorado)
+- Asignado a organismos veteranos cuya edad supere los 13,000 milisegundos biológicos o posean alta complejidad conectiva.
+- Mayor capacidad de decisión y adaptación empírica.
 
 ### 🔵 El Explorador — Rombo
 - Se desbloquea al mantener velocidad > máxima durante 60+ frames consecutivos
@@ -140,9 +143,10 @@ Depredadores (Triángulos Rojos)
 Titanes Legendarios (★7+ kills)
 ```
 
-### Refugios Tácticos
-- **Arbustos (Thickets)**: Zonas verdes translúcidas. Otorgan camuflaje automático a quien esté dentro.
-- **Madrigueras (Burrows)**: Pozos púrpuras con inmunidad absoluta a mordidas, pero con penalización metabólica x2 y expulsión forzada después de 150 frames.
+### Refugios y Camuflaje
+- **Arbustos (Thickets)**: Zonas circulares orgánicas translucidas. Otorgan camuflaje pasivo total a quien se adentre en ellas.
+- **Madrigueras (Burrows)**: Pozos con inmunidad absoluta a ataques, pero con agresivo costo metabólico x2 y fatiga gravitatoria tras 150 frames.
+- **Camuflaje Biológico (Oculto)**: El agente emplea energía neural (+0.20 metabólico) en engañar al sistema visual. **Atención**: La invisibilidad solo se sostiene mientras la velocidad actual sea inferior al 50%. Correr rompe orgánicamente el sigilo a nivel físico y lumínico.
 
 ### Anti-Camping de Paredes
 - Radio de detección: 50px del borde

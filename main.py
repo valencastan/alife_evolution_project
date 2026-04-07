@@ -26,16 +26,25 @@ def run_infinite(config_path, world_name, render=True):
         config_path
     )
     
-    pop = neat.Population(config)
-    # Silent reporter (minimal console output)
-    pop.add_reporter(neat.StdOutReporter(False))
-
     sandbox = Sandbox(num_agents=config.pop_size, max_capacity=50, num_food=100, width=800, height=600)
     neat_bridge = NeatBridge(num_inputs=13, num_outputs=7, max_nodes=50)
     
     god_mode = GodMode(sandbox)
     visualizer = Visualizer(sandbox, god_mode, fps=30, world_name=world_name) if render else None
     
+    # Intentar cargar mundo preexistente
+    oracle_instance = visualizer.oracle if visualizer else None
+    if not oracle_instance:
+        from interface.oracle import Oracle
+        oracle_instance = Oracle(world_name)
+        
+    loaded_pop, tick = oracle_instance.load_world(sandbox)
+    
+    pop = loaded_pop if loaded_pop is not None else neat.Population(config)
+    
+    # Silence all NEAT default reporters for clean logging
+    pop.reporters.reporters.clear()
+        
     # Initial genome compilation
     initial_genomes = list(pop.population.items())
     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
@@ -50,16 +59,24 @@ def run_infinite(config_path, world_name, render=True):
     genome_pool_conns = None
     genome_pool_cursor = 0
     
-    tick = 0
     drift_timer = 0
     
-    print(f"[IPAVERSE] Mundo '{world_name}' iniciado. Simulación infinita activa.")
+    if loaded_pop is not None:
+        print(f"[IPAVERSE] Relinking to existing timeline for {world_name}. Welcome back.")
+    else:
+        print(f"[IPAVERSE] Mundo '{world_name}' iniciado en tick {tick}. Simulación infinita activa.")
     print(f"[IPAVERSE] Cierre la ventana para volver al menú.")
     
     while True:
         inputs = sandbox.get_sensory_inputs()
         actions = compute_engine.step(inputs)
         extinct = sandbox.step(actions, active_conn_counts)
+        
+        # Apply Neural Bias to new predators
+        if np.any(sandbox.new_carnivores_this_tick):
+            for aid in np.where(sandbox.new_carnivores_this_tick)[0]:
+                compute_engine.b[aid, 0] += 1.0 # Turn Bias
+                compute_engine.b[aid, 1] += 2.0 # Acceleration Bias
         
         # Handle total extinction
         if extinct or not np.any(sandbox.agent_alive):
@@ -81,9 +98,11 @@ def run_infinite(config_path, world_name, render=True):
                     print(f"[IPAVERSE] Mundo '{world_name}' reiniciado.")
                     continue
                 elif result == "EXIT":
+                    oracle_instance.save_world(pop, sandbox, tick)
                     visualizer.close()
                     return
             else:
+                oracle_instance.save_world(pop, sandbox, tick)
                 return
         
         # Handle agent death/respawn brain assignment
@@ -105,6 +124,7 @@ def run_infinite(config_path, world_name, render=True):
         if render and visualizer:
             visualizer.render(actions, active_conn_counts, genetic_drift_active)
             if visualizer.should_quit:
+                oracle_instance.save_world(pop, sandbox, tick)
                 visualizer.close()
                 return
         
@@ -147,34 +167,36 @@ def run_infinite(config_path, world_name, render=True):
                 genome_pool_conns = gc
                 genome_pool_cursor = 0
                 
-                print(f"[DERIVA GENÉTICA] Gen {pop.generation} | Pool: {len(new_genomes)} cerebros nuevos")
+                # Silently updated the genome pool
             except Exception as e:
-                print(f"[DERIVA GENÉTICA] Error en reproducción: {e}")
-                # Recreate population on critical failure
+                # Silently handle population recovery
                 try:
                     pop = neat.Population(config)
                     pop.species.speciate(config, pop.population, pop.generation)
-                    print("[DERIVA GENÉTICA] Población regenerada desde cero.")
+                    # Silently recreated population
                 except:
                     pass
         
         # Oracle periodic snapshot every 1200 ticks
-        if tick % 1200 == 0 and render and visualizer:
-            alive_indices = np.where(sandbox.agent_alive)[0]
-            if len(alive_indices) > 0:
-                dom, col, stats = visualizer.oracle.compute_archetype(active_conn_counts, actions, sandbox)
-                alpha_idx = alive_indices[np.argmax(sandbox.agent_age[alive_indices])]
-                visualizer.oracle.save_epoch(
-                    dom, sandbox.agent_age[alpha_idx], alpha_idx, 
-                    active_conn_counts[alpha_idx], int(np.max(sandbox.kill_count)),
-                    extra_stats={
-                        "tick": tick,
-                        "generation": pop.generation,
-                        "population": len(alive_indices),
-                        "avg_age": int(np.mean(sandbox.agent_age[alive_indices])),
-                        "stats_line": stats
-                    }
-                )
+        if tick % 1200 == 0:
+            if render and visualizer:
+                alive_indices = np.where(sandbox.agent_alive)[0]
+                if len(alive_indices) > 0:
+                    dom, col, stats = visualizer.oracle.compute_archetype(active_conn_counts, actions, sandbox)
+                    alpha_idx = alive_indices[np.argmax(sandbox.agent_age[alive_indices])]
+                    visualizer.oracle.save_epoch(
+                        dom, sandbox.agent_age[alpha_idx], alpha_idx, 
+                        active_conn_counts[alpha_idx], int(np.max(sandbox.kill_count)),
+                        extra_stats={
+                            "tick": tick,
+                            "generation": pop.generation,
+                            "population": len(alive_indices),
+                            "avg_age": int(np.mean(sandbox.agent_age[alive_indices])),
+                            "stats_line": stats
+                        }
+                    )
+            # Guardado persitente cada ciclo natural (1 year)
+            oracle_instance.save_world(pop, sandbox, tick)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("IpaVerse - Simulador de Vida Artificial")
