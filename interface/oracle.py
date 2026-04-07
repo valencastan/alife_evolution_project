@@ -3,6 +3,20 @@ import os
 import time
 import numpy as np
 import pickle
+import itertools
+import copyreg
+
+# Fix for "cannot pickle 'itertools.count' object" on Windows Python builds
+def _pickle_count(c):
+    s = str(c)
+    val = 0
+    if s.startswith("count("):
+        try:
+            val = int(s[6:-1].split(',')[0])
+        except ValueError:
+            pass
+    return (itertools.count, (val,))
+copyreg.pickle(itertools.count, _pickle_count)
 
 class Oracle:
     """

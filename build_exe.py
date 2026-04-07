@@ -11,6 +11,7 @@ def build():
         '--onefile',
         '--add-data', f'assets/textures{os.pathsep}assets/textures',
         '--add-data', f'history{os.pathsep}history',
+        '--add-data', f'config-feedforward{os.pathsep}.',
     ]
 
     icon_path = 'assets/textures/presa.png'

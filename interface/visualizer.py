@@ -26,12 +26,19 @@ class Visualizer:
         
         # Load Pixel-Art Assets
         try:
-            self.tex_presa = pygame.image.load("assets/textures/presa.png").convert_alpha()
-            self.tex_predador = pygame.image.load("assets/textures/depredador.png").convert_alpha()
-            self.tex_comida = pygame.image.load("assets/textures/comida.png").convert_alpha()
-            self.tex_thicket = pygame.image.load("assets/textures/thicket.png").convert_alpha()
-            self.tex_sangre = pygame.image.load("assets/textures/sangre.png").convert_alpha()
+            def resource_path(relative_path):
+                import sys, os
+                if hasattr(sys, '_MEIPASS'):
+                    return os.path.join(sys._MEIPASS, relative_path)
+                return os.path.join(os.path.abspath("."), relative_path)
+
+            self.tex_presa = pygame.image.load(resource_path("assets/textures/presa.png")).convert_alpha()
+            self.tex_predador = pygame.image.load(resource_path("assets/textures/depredador.png")).convert_alpha()
+            self.tex_comida = pygame.image.load(resource_path("assets/textures/comida.png")).convert_alpha()
+            self.tex_thicket = pygame.image.load(resource_path("assets/textures/thicket.png")).convert_alpha()
+            self.tex_sangre = pygame.image.load(resource_path("assets/textures/sangre.png")).convert_alpha()
         except Exception as e:
+            print(f"Failed to load textures: {e}")
             self.tex_presa = pygame.Surface((16,16), pygame.SRCALPHA)
             self.tex_predador = pygame.Surface((24,24), pygame.SRCALPHA)
             self.tex_comida = pygame.Surface((8,8), pygame.SRCALPHA)
@@ -202,7 +209,7 @@ class Visualizer:
                 return (200, 10, 10), "Depredador"
 
         # Prey Hierarchy
-        if self.sandbox.agent_age[idx] > 13000 or active_conn_counts[idx] >= 7:
+        if self.sandbox.agent_age[idx] > 10000:
             return (255, 255, 255), "Sabio"
         elif self.sandbox.is_camouflaged[idx]:
             return (100, 100, 100), "Oculto"
@@ -642,8 +649,8 @@ class Visualizer:
             
             hud_y = 20 + int(30 * scale_y * len(left_info)) + int(30 * scale_y)
             
-            pygame.draw.rect(self.hud_surface, (20, 25, 30, 160), (20, hud_y, 300, 110), border_radius=8)
-            pygame.draw.rect(self.hud_surface, (50, 100, 150, 200), (20, hud_y, 300, 110), 2, border_radius=8)
+            pygame.draw.rect(self.hud_surface, (20, 25, 30, 160), (20, hud_y, 300, 130), border_radius=8)
+            pygame.draw.rect(self.hud_surface, (50, 100, 150, 200), (20, hud_y, 300, 130), 2, border_radius=8)
             
             self.draw_vector_icon(self.hud_surface, "heart", 45, hud_y + 25, (255, 50, 50))
             age_txt = self.font.render(f"Supervivencia: {y_yr} A, {m_mo} M", True, (200, 200, 200))
@@ -656,7 +663,10 @@ class Visualizer:
             k_txt = self.font.render(f"Kills Registrados: {alpha_kills}", True, (200, 200, 200))
             self.hud_surface.blit(k_txt, (65, hud_y + 75))
             
-            hud_y += int(120 * scale_y)
+            c_txt = self.font.render(f"Complejidad Neurológica: {active_conn_counts[alpha_idx]} Nexos", True, (0, 255, 255))
+            self.hud_surface.blit(c_txt, (65, hud_y + 100))
+            
+            hud_y += int(140 * scale_y)
             # biological status & name floating
             st_ren = self.font.render(f"Estado: {b_status}", True, alpha_col)
             self.hud_surface.blit(st_ren, (170 - st_ren.get_width()//2, hud_y))
@@ -697,8 +707,8 @@ class Visualizer:
                 leg_col, t_status = self.get_agent_aura(legendary_idx, actions, active_conn_counts)
 
                 l_hud_y = 20 + int(30 * scale_y * len(right_info)) + int(30 * scale_y)
-                pygame.draw.rect(self.hud_surface, (30, 20, 20, 160), (right_x, l_hud_y, 300, 110), border_radius=8)
-                pygame.draw.rect(self.hud_surface, (255, 50, 50, 200), (right_x, l_hud_y, 300, 110), 2, border_radius=8)
+                pygame.draw.rect(self.hud_surface, (30, 20, 20, 160), (right_x, l_hud_y, 300, 130), border_radius=8)
+                pygame.draw.rect(self.hud_surface, (255, 50, 50, 200), (right_x, l_hud_y, 300, 130), 2, border_radius=8)
 
                 self.draw_vector_icon(self.hud_surface, "heart", right_x + 25, l_hud_y + 25, (255, 50, 50))
                 leg_age_tc = self.font.render(f"Supervivencia: {leg_y} A, {leg_m} M", True, (200, 200, 200))
@@ -711,7 +721,10 @@ class Visualizer:
                 leg_k_tc = self.font.render(f"Víctimas Titánicas: {leg_scale}", True, (255, 100, 100))
                 self.hud_surface.blit(leg_k_tc, (right_x + 45, l_hud_y + 75))
                 
-                l_hud_y += int(120 * scale_y)
+                leg_c_txt = self.font.render(f"Complejidad Neurológica: {active_conn_counts[legendary_idx]} Nexos", True, (0, 255, 255))
+                self.hud_surface.blit(leg_c_txt, (right_x + 45, l_hud_y + 100))
+                
+                l_hud_y += int(140 * scale_y)
                 tst_ren = self.font.render(f"Estado: {t_status}", True, leg_col)
                 self.hud_surface.blit(tst_ren, (right_x + 150 - tst_ren.get_width()//2, l_hud_y))
                 l_ren = self.large_font.render(leg_name, True, leg_col)

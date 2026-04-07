@@ -221,6 +221,7 @@ class Sandbox:
         self.predation_events.clear()
         self.pulse_events.clear()
         self.spawn_events.clear()
+        self.new_carnivores_this_tick.fill(False)
         alive_mask = self.agent_alive
         alive_indices = np.where(alive_mask)[0]
         
