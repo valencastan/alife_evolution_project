@@ -11,6 +11,17 @@ from interface.visualizer import Visualizer
 from interface.god_mode import GodMode
 from data.logger import EvolutionLogger
 
+import sys
+
+def resource_path(relative_path):
+    """ Obtiene la ruta absoluta de los recursos, compatible con PyInstaller """
+    try:
+        # PyInstaller crea una carpeta temporal y guarda la ruta en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 def run_infinite(config_path, world_name, render=True):
     """
     Simulación Infinita de IpaVerse.
@@ -204,7 +215,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     local_dir = os.path.dirname(__file__)
-    config_path = os.path.join(local_dir, 'config-feedforward')
+    config_path = resource_path('config-feedforward')
     
     if args.headless:
         run_infinite(config_path, world_name="headless", render=False)
