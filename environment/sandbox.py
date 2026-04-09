@@ -48,9 +48,21 @@ class Sandbox:
         self.kill_cooldown  = np.zeros(max_capacity, dtype=np.int32)   # post-kill wait
         self.alarm_pressure = np.zeros(max_capacity, dtype=np.float32) # collective alarm signal
         self.alarm_timer    = np.zeros(max_capacity, dtype=np.int32)   # alarm duration
+        self.signal_assists = np.zeros(max_capacity, dtype=np.int32)   # crédito por emisión de alarma útil
         
         self.food_positions = np.zeros((self.num_food, 2), dtype=np.float32)
         self.food_active = np.zeros(self.num_food, dtype=bool)
+        
+        # Smart Food System: cluster centers dinámicos
+        self.food_centers = np.column_stack([
+            np.random.uniform(100, self.width - 100, 5),
+            np.random.uniform(100, self.height - 100, 5)
+        ]).astype(np.float32)  # 5 centros de cluster rotativos
+        self.food_rotation_timer = 0
+        
+        # Drought System
+        self.drought_active = False
+        self.drought_timer = 0
         
         self.clones_produced_this_tick = []
         self.predation_events = [] # (x, y, killer_color)
@@ -112,6 +124,10 @@ class Sandbox:
         self.predation_events.clear()
 
     def _spawn_food(self, amount, overwrite=False):
+        """Spawn food clusters vectorizados. Respeta drought_active y usa food_centers rotativos."""
+        if self.drought_active:
+            return  # Sequía activa: bloqueo total de spawn de comida
+        
         inactive_indices = np.where(~self.food_active)[0]
         spawns_needed = min(amount, len(inactive_indices))
         if overwrite:
@@ -124,18 +140,18 @@ class Sandbox:
                 
         if spawns_needed > 0:
             spawn_idx = np.random.choice(inactive_indices, spawns_needed, replace=False)
-            centers_count = max(1, spawns_needed // 10)
-            centers_x = np.random.uniform(100, self.width-100, centers_count)
-            centers_y = np.random.uniform(100, self.height-100, centers_count)
+            n = len(spawn_idx)
             
-            for i, f_idx in enumerate(spawn_idx):
-                c_idx = i % centers_count
-                cx, cy = centers_x[c_idx], centers_y[c_idx]
-                r = np.random.normal(0, 30.0)
-                ang = np.random.uniform(0, 2*np.pi)
-                self.food_positions[f_idx, 0] = np.clip(cx + r * np.cos(ang), 0, self.width)
-                self.food_positions[f_idx, 1] = np.clip(cy + r * np.sin(ang), 0, self.height)
+            # Asignar cada food item a un centro de cluster aleatorio (vectorizado)
+            center_assignments = np.random.randint(0, len(self.food_centers), size=n)
+            cx = self.food_centers[center_assignments, 0]
+            cy = self.food_centers[center_assignments, 1]
             
+            # Dispersíon gaussiana vectorial alrededor de los centros
+            r   = np.random.normal(0, 30.0, size=n)
+            ang = np.random.uniform(0, 2 * np.pi, size=n)
+            self.food_positions[spawn_idx, 0] = np.clip(cx + r * np.cos(ang), 0, self.width)
+            self.food_positions[spawn_idx, 1] = np.clip(cy + r * np.sin(ang), 0, self.height)
             self.food_active[spawn_idx] = True
 
     def get_sensory_inputs(self):
@@ -225,6 +241,28 @@ class Sandbox:
         alive_mask = self.agent_alive
         alive_indices = np.where(alive_mask)[0]
         
+        # ── Smart Food System ──────────────────────────────────────────────
+        self.food_rotation_timer += 1
+        if self.food_rotation_timer >= 800:
+            self.food_rotation_timer = 0
+            # Rotación de centros: nuevas zonas de recursos (vectorizado)
+            self.food_centers = np.column_stack([
+                np.random.uniform(100, self.width  - 100, 5),
+                np.random.uniform(100, self.height - 100, 5)
+            ]).astype(np.float32)
+        
+        # ── Drought System ─────────────────────────────────────────────────
+        self.drought_timer += 1
+        if not self.drought_active and self.drought_timer >= 3000:   # cada 100s a 30 FPS
+            self.drought_active = True
+            self.drought_timer = 0
+        elif self.drought_active:
+            if self.drought_timer >= 600:                             # dura 20s a 30 FPS
+                self.drought_active = False
+                self.drought_timer = 0
+        # ──────────────────────────────────────────────────────────────────
+        
+        
         if self.big_crunch:
             self.legendary_pulse_frames = 0
             cx, cy = self.width/2, self.height/2
@@ -294,6 +332,10 @@ class Sandbox:
         thrust[~alive_mask] = 0.0
         self.agent_signals[~alive_mask] = 0.0
         
+        # [ALARMA EMERGENTE] Boost de velocidad para herbívoros que reciben señal de alarma intensa
+        alarm_receivers = (self.sensory_inputs[:, 10] > 0.6) & alive_mask & ~self.is_carnivore
+        thrust[alarm_receivers] *= 1.3  # Sprint de pánico vectorial
+        
         biters = (bite_demand > 0.5) & alive_mask
         
         # Sustained biting required for carnivore conversion (30 ticks)
@@ -339,12 +381,20 @@ class Sandbox:
         fast_runners = (speed_sq > (self.max_speed * 0.5)**2) & alive_mask
         self.is_camouflaged[fast_runners] = False
         
-        energy_cost = 0.2 + (speed_sq * 0.05)
-        energy_cost[self.is_carnivore] *= 1.08 # Carnivores have slightly higher metabolism (reduced 40% from 1.8)
+        # [LONGEVIDAD] Base cost: herbívoros -30% (0.14 vs 0.20), carnívoros x1.4 aplicado después
+        herbivore_mask = ~self.is_carnivore
+        energy_cost = np.where(herbivore_mask, 0.14, 0.20) + (speed_sq * 0.05)
+        energy_cost[self.is_carnivore] *= 1.4  # Metabolismo carnívoro 1.4x
         energy_cost[ghost_attempts] += 0.20 # HEAVY neural camo cost to prevent hiding forever
         energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost
         energy_cost[self.agent_signals > 0.5] += 0.08 # Semantic filter: metabolic cost to broadcasting noise
         energy_cost[self.in_burrow] *= 2.0 # Burrow stagnation multiplier
+        energy_cost[alarm_receivers] += 0.3  # [ALARMA EMERGENTE] Costo metabólico del sprint de pánico
+        
+        # [REBALANCE] Carrying Capacity: kicks in from 30 carnivores (vectorizado)
+        carnivore_count = np.sum(self.is_carnivore & alive_mask)
+        cc_multiplier = 1.0 + np.maximum(0.0, (carnivore_count - 30) * 0.02)
+        energy_cost[self.is_carnivore & alive_mask] *= cc_multiplier
         
         # Burrow Force Eviction
         for aid in alive_indices:
@@ -377,18 +427,9 @@ class Sandbox:
         self.agent_energy -= energy_cost
         self.agent_energy = np.clip(self.agent_energy, 0.0, 100.0)
         
-        # Thicket passive regeneration removed.
-        # Hunger Magnetism (Biological Desperation - Instinct Override)
-        starving_agents = (self.agent_energy < 20.0) & alive_mask & ~self.is_carnivore
-        if np.any(starving_agents) and np.any(self.food_active):
-            active_food = self.food_positions[self.food_active]
-            for aid in np.where(starving_agents)[0]:
-                agent_pos = self.agent_positions[aid]
-                diffs = active_food - agent_pos
-                dists = np.linalg.norm(diffs, axis=1)
-                closest_idx = np.argmin(dists)
-                dir_vec = diffs[closest_idx] / (dists[closest_idx] + 1e-4)
-                self.agent_positions[aid] += dir_vec * 2.5 # Force physical movement towards food
+        # [REBALANCE] Hunger Magnetism removed — brain maintains full motor control even in starvation.
+        # Thicket Energy Drain: agents inside thickets lose 0.05 energy per tick
+        self.agent_energy[self.in_thicket & alive_mask] -= 0.05
         
         # Alarm timer decay
         active_alarm = self.alarm_timer > 0
@@ -468,6 +509,22 @@ class Sandbox:
                     
                     break # Only bite one per tick
         
+        # [ALARMA EMERGENTE] Atribución de crédito vectorial por señal de alarma útil
+        # Un emisor recibe crédito si: emite señal fuerte, hay alarm_receivers vivos cerca, y NO fue cazado este tick
+        strong_signalers = (self.agent_signals > 0.5) & alive_mask & ~self.is_carnivore
+        if np.any(strong_signalers) and np.any(alarm_receivers):
+            sig_pos   = self.agent_positions[strong_signalers]   # (S, 2)
+            recv_pos  = self.agent_positions[alarm_receivers]    # (R, 2)
+            # Distancias entre todos los pares signaler→receiver: (S, R)
+            sig_to_recv = np.linalg.norm(
+                sig_pos[:, np.newaxis, :] - recv_pos[np.newaxis, :, :], axis=2
+            )
+            # Solo contar receivers dentro del rango de señal (300 unidades)
+            in_range_matrix = sig_to_recv < 300.0          # (S, R) bool
+            assists_gained  = np.sum(in_range_matrix, axis=1).astype(np.int32)  # (S,)
+            sig_indices = np.where(strong_signalers)[0]
+            self.signal_assists[sig_indices] += assists_gained
+        
         # 3. Eating Passive Flora
         if np.any(self.food_active) and np.any(self.agent_alive):
             active_food_idx = np.where(self.food_active)[0]
@@ -507,25 +564,22 @@ class Sandbox:
                 self.agent_positions[died, 1] = spawn_y
                 self.agent_angles[died] = np.random.uniform(0, 2 * np.pi)
                 
-                # Energía basada en proximidad a comida
-                if np.any(self.food_active):
-                    food_dists = np.linalg.norm(self.food_positions[self.food_active] - [spawn_x, spawn_y], axis=1)
-                    self.agent_energy[died] = 100.0 if np.min(food_dists) < 80.0 else 80.0
-                else:
-                    self.agent_energy[died] = 100.0
+                # [REBALANCE] Energia de spawn estandarizada — todos los agentes inician con la misma base.
+                self.agent_energy[died] = 80.0
                 
                 self.agent_age[died] = 0
                 # New agents always spawn as herbivores regardless of alpha type
                 # This prevents predator monoculture — carnivores must re-earn that status
                 self.is_carnivore[died] = False
                 self.kill_count[died] = 0
-                self.invulnerability_frames[died] = 100
+                self.invulnerability_frames[died] = 30  # [REBALANCE] Reducido de 100 a 30 frames
                 self.is_explorer[died] = False
                 self.high_speed_frames[died] = 0
                 self.bite_frames[died] = 0
                 self.kill_cooldown[died] = 0
                 self.alarm_pressure[died] = 0.0
                 self.alarm_timer[died] = 0
+                self.signal_assists[died] = 0  # [ALARMA EMERGENTE] reset créditos al renacer
                 self.spawn_events.append((spawn_x, spawn_y))
                 self.clones_produced_this_tick.append((alpha_id, died))
                 self.agent_alive[died] = True 
@@ -550,13 +604,14 @@ class Sandbox:
                 self.agent_age[child_id] = 0
                 self.is_carnivore[child_id] = self.is_carnivore[parent_id]
                 self.kill_count[child_id] = 0
-                self.invulnerability_frames[child_id] = 100
+                self.invulnerability_frames[child_id] = 30  # [REBALANCE] Reducido de 100 a 30 frames
                 self.is_explorer[child_id] = False
                 self.high_speed_frames[child_id] = 0
                 self.bite_frames[child_id] = 0
                 self.kill_cooldown[child_id] = 0
                 self.alarm_pressure[child_id] = 0.0
                 self.alarm_timer[child_id] = 0
+                self.signal_assists[child_id] = 0  # [ALARMA EMERGENTE] hijo empieza sin créditos
                 self.clones_produced_this_tick.append((parent_id, child_id))
         
         self.agent_age[self.agent_alive] += 1

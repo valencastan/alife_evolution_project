@@ -30,6 +30,8 @@ class ComputeEngine:
         
         for _ in range(self.max_depth):
             Z = np.matmul(self.states[:, np.newaxis, :], self.W).squeeze(1) + self.b
+            # [REBALANCE] Leaky Memory: decay 10% per tick to prevent node saturation and preserve plasticity
+            self.states *= 0.9
             # Clipped ReLU to prevent infinite recurrent explosion
             states_new = np.clip(Z, 0.0, 10.0)
             states_new[:, :self.num_inputs] = inputs

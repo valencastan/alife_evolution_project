@@ -147,8 +147,15 @@ def run_infinite(config_path, world_name, render=True):
         if tick % 600 == 0:
             drift_timer = 90  # Show indicator for ~3 seconds
             
-            # Evaluate fitness based on current agent performance
-            fitnesses = sandbox.agent_age.astype(float) + (sandbox.agent_energy * 0.1)
+            # [ALARMA EMERGENTE v3] Fitness integral: supervivencia + depredación + lenguaje colectivo
+            # fitness = (energy × 5.0) + (age × 0.1) + (kill_count × 50.0) + (signal_assists × 30.0) - (connections × 0.05)
+            fitnesses = (
+                (sandbox.agent_energy * 5.0)
+                + (sandbox.agent_age.astype(float) * 0.1)
+                + (sandbox.kill_count.astype(float) * 50.0)
+                + (sandbox.signal_assists.astype(float) * 30.0)
+                - (active_conn_counts.astype(float) * 0.05)
+            )
             
             # Set fitness on current NEAT population
             for i, (gid, genome) in enumerate(pop.population.items()):

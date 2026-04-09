@@ -315,9 +315,15 @@ class Visualizer:
                     thickness = 4 if is_legendary else 1
                     pygame.draw.line(self.virtual_screen, (*c, alpha), pts[i], pts[i+1], thickness)
 
+    DESERT_SAND = (210, 180, 140)
+
     def render(self, actions, active_conn_counts, genetic_drift_active=False):
-        self.virtual_screen.blit(self.fade_surf, (0,0))
-        self.virtual_screen.blit(self.grid_surf, (0,0))
+        # Fondo condicional: arena de desierto durante sequía, negro base el resto del tiempo
+        if self.sandbox.drought_active:
+            self.virtual_screen.fill(self.DESERT_SAND)
+        else:
+            self.virtual_screen.blit(self.fade_surf, (0, 0))  # motion-blur trail effect
+        self.virtual_screen.blit(self.grid_surf, (0, 0))
         self.real_screen.fill((5, 5, 5))
 
         window_w, window_h = self.real_screen.get_size()
@@ -686,14 +692,22 @@ class Visualizer:
             # --- RIGHT COLUMN (TITAN / PREDATOR FOCUS) ---
             right_x = window_w - 320
             
+            if self.sandbox.drought_active:
+                secs_left = max(0, (600 - self.sandbox.drought_timer) // 30)
+                drought_status = f"⚠ SEQUÍA ACTIVA ({secs_left}s)"
+            else:
+                secs_next = max(0, (3000 - self.sandbox.drought_timer) // 30)
+                drought_status = f"Próx. Sequía: {secs_next}s"
             right_info = [
                 f"Población Total: {len(alive_indices)}/50",
                 f"Herbívoros (Presas): {prey_count}",
                 f"Carnívoros (Cazadores): {carnivores_alive}",
-                f"Densidad Biológica: {int((len(alive_indices)/50)*100)}%"
+                f"Densidad Biológica: {int((len(alive_indices)/50)*100)}%",
+                drought_status,
             ]
             for i, text in enumerate(right_info):
-                ren = self.font.render(text, True, (200, 200, 200, a_flicker))
+                color = (255, 160, 0) if "SEQUÍA" in text else (200, 200, 200)
+                ren = self.font.render(text, True, (*color, a_flicker))
                 self.hud_surface.blit(ren, (right_x, 20 + int(30 * scale_y * i)))
                 
             if legendary_idx is not None:
