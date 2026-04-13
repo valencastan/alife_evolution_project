@@ -253,11 +253,11 @@ class Sandbox:
         
         # ── Drought System ─────────────────────────────────────────────────
         self.drought_timer += 1
-        if not self.drought_active and self.drought_timer >= 3000:   # cada 100s a 30 FPS
+        if not self.drought_active and self.drought_timer >= 5000:   # cada ~167s a 30 FPS
             self.drought_active = True
             self.drought_timer = 0
         elif self.drought_active:
-            if self.drought_timer >= 600:                             # dura 20s a 30 FPS
+            if self.drought_timer >= 400:                             # dura ~13s a 30 FPS
                 self.drought_active = False
                 self.drought_timer = 0
         # ──────────────────────────────────────────────────────────────────
@@ -333,7 +333,7 @@ class Sandbox:
         self.agent_signals[~alive_mask] = 0.0
         
         # [ALARMA EMERGENTE] Boost de velocidad para herbívoros que reciben señal de alarma intensa
-        alarm_receivers = (self.sensory_inputs[:, 10] > 0.6) & alive_mask & ~self.is_carnivore
+        alarm_receivers = (self.sensory_inputs[:, 10] > 0.3) & alive_mask & ~self.is_carnivore
         thrust[alarm_receivers] *= 1.3  # Sprint de pánico vectorial
         
         biters = (bite_demand > 0.5) & alive_mask
@@ -519,8 +519,8 @@ class Sandbox:
             sig_to_recv = np.linalg.norm(
                 sig_pos[:, np.newaxis, :] - recv_pos[np.newaxis, :, :], axis=2
             )
-            # Solo contar receivers dentro del rango de señal (300 unidades)
-            in_range_matrix = sig_to_recv < 300.0          # (S, R) bool
+            # Solo contar receivers dentro del rango de señal (400 unidades)
+            in_range_matrix = sig_to_recv < 400.0          # (S, R) bool
             assists_gained  = np.sum(in_range_matrix, axis=1).astype(np.int32)  # (S,)
             sig_indices = np.where(strong_signalers)[0]
             self.signal_assists[sig_indices] += assists_gained

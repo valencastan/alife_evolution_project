@@ -48,21 +48,25 @@ def run_infinite(config_path, world_name, render=True):
     if not oracle_instance:
         from interface.oracle import Oracle
         oracle_instance = Oracle(world_name)
-        
+
     loaded_pop, tick = oracle_instance.load_world(sandbox)
-    
+
     pop = loaded_pop if loaded_pop is not None else neat.Population(config)
-    
+
     # Silence all NEAT default reporters for clean logging
     pop.reporters.reporters.clear()
-        
-    # Initial genome compilation
+
+    # Initial genome compilation (always compile from saved/fresh pop first)
     initial_genomes = list(pop.population.items())
     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
     compute_engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
     active_conn_counts = np.zeros(50, dtype=np.int32)
     num_starters = len(initial_genomes)
     active_conn_counts[:num_starters] = conn_counts[:num_starters]
+
+    # Restore brain weights + states into the live engine (must happen after engine exists)
+    if loaded_pop is not None:
+        oracle_instance.load_world(sandbox, compute_engine=compute_engine)
     
     # Genome pool for dead queue (new genomes assigned on respawn)
     genome_pool_W = None
@@ -109,11 +113,11 @@ def run_infinite(config_path, world_name, render=True):
                     print(f"[IPAVERSE] Mundo '{world_name}' reiniciado.")
                     continue
                 elif result == "EXIT":
-                    oracle_instance.save_world(pop, sandbox, tick)
+                    oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
                     visualizer.close()
                     return
             else:
-                oracle_instance.save_world(pop, sandbox, tick)
+                oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
                 return
         
         # Handle agent death/respawn brain assignment
@@ -133,9 +137,10 @@ def run_infinite(config_path, world_name, render=True):
         genetic_drift_active = drift_timer > 0
         
         if render and visualizer:
-            visualizer.render(actions, active_conn_counts, genetic_drift_active)
+            visualizer.render(actions, active_conn_counts, genetic_drift_active,
+                              tick=tick, generation=pop.generation)
             if visualizer.should_quit:
-                oracle_instance.save_world(pop, sandbox, tick)
+                oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
                 visualizer.close()
                 return
         
@@ -147,14 +152,12 @@ def run_infinite(config_path, world_name, render=True):
         if tick % 600 == 0:
             drift_timer = 90  # Show indicator for ~3 seconds
             
-            # [ALARMA EMERGENTE v3] Fitness integral: supervivencia + depredación + lenguaje colectivo
-            # fitness = (energy × 5.0) + (age × 0.1) + (kill_count × 50.0) + (signal_assists × 30.0) - (connections × 0.05)
+            # [BALANCE] Connection penalty removed (was -connections×0.05); no longer penalizes neural complexity
             fitnesses = (
                 (sandbox.agent_energy * 5.0)
                 + (sandbox.agent_age.astype(float) * 0.1)
                 + (sandbox.kill_count.astype(float) * 50.0)
                 + (sandbox.signal_assists.astype(float) * 30.0)
-                - (active_conn_counts.astype(float) * 0.05)
             )
             
             # Set fitness on current NEAT population
@@ -214,7 +217,7 @@ def run_infinite(config_path, world_name, render=True):
                         }
                     )
             # Guardado persitente cada ciclo natural (1 year)
-            oracle_instance.save_world(pop, sandbox, tick)
+            oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("IpaVerse - Simulador de Vida Artificial")
