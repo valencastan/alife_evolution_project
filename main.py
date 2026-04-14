@@ -59,7 +59,7 @@ def run_infinite(config_path, world_name, render=True):
     # Initial genome compilation (always compile from saved/fresh pop first)
     initial_genomes = list(pop.population.items())
     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
-    compute_engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
+    compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
     active_conn_counts = np.zeros(50, dtype=np.int32)
     num_starters = len(initial_genomes)
     active_conn_counts[:num_starters] = conn_counts[:num_starters]
@@ -74,6 +74,8 @@ def run_infinite(config_path, world_name, render=True):
     genome_pool_conns = None
     genome_pool_cursor = 0
     
+    reached_premium_count = np.zeros(50, dtype=np.int32)
+    
     drift_timer = 0
     
     if loaded_pop is not None:
@@ -86,6 +88,11 @@ def run_infinite(config_path, world_name, render=True):
         inputs = sandbox.get_sensory_inputs()
         actions = compute_engine.step(inputs)
         extinct = sandbox.step(actions, active_conn_counts)
+        compute_engine.update_learning(sandbox.agent_energy, lr=0.001)
+        
+        # Oasis Discovery Tracking (Herbivores only)
+        herbivore_mask = ~sandbox.is_carnivore & sandbox.agent_alive
+        reached_premium_count[herbivore_mask & sandbox.in_premium_zone] += 1
         
         # Apply Neural Bias to new predators
         if np.any(sandbox.new_carnivores_this_tick):
@@ -104,11 +111,12 @@ def run_infinite(config_path, world_name, render=True):
                     pop = neat.Population(config)
                     initial_genomes = list(pop.population.items())
                     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
-                    compute_engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
+                    compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
                     active_conn_counts = np.zeros(50, dtype=np.int32)
                     active_conn_counts[:len(initial_genomes)] = conn_counts[:len(initial_genomes)]
                     genome_pool_W = None
                     genome_pool_cursor = 0
+                    reached_premium_count.fill(0)
                     tick = 0
                     print(f"[IPAVERSE] Mundo '{world_name}' reiniciado.")
                     continue
@@ -123,22 +131,25 @@ def run_infinite(config_path, world_name, render=True):
         # Handle agent death/respawn brain assignment
         for parent_id, child_id in sandbox.clones_produced_this_tick:
             if genome_pool_W is not None and genome_pool_cursor < genome_pool_W.shape[0]:
-                # Assign evolved genome from Dead Queue pool
                 compute_engine.W[child_id] = genome_pool_W[genome_pool_cursor]
                 compute_engine.b[child_id] = genome_pool_b[genome_pool_cursor]
+                compute_engine.reset_learned(child_id)
+                # inherit learned weights from parent if available
+                compute_engine.inherit_learned(parent_id, child_id, decay=0.7)
                 compute_engine.states[child_id] = 0.0
                 active_conn_counts[child_id] = genome_pool_conns[genome_pool_cursor]
+                reached_premium_count[child_id] = 0
                 genome_pool_cursor += 1
             else:
-                # Fallback: clone parent/alpha brain
                 compute_engine.clone_agent(parent_id, child_id)
+                compute_engine.inherit_learned(parent_id, child_id, decay=0.7)
                 active_conn_counts[child_id] = active_conn_counts[parent_id]
         
         genetic_drift_active = drift_timer > 0
         
         if render and visualizer:
             visualizer.render(actions, active_conn_counts, genetic_drift_active,
-                              tick=tick, generation=pop.generation)
+                              tick=tick, generation=pop.generation, compute_engine=compute_engine)
             if visualizer.should_quit:
                 oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
                 visualizer.close()
@@ -148,8 +159,8 @@ def run_infinite(config_path, world_name, render=True):
         if drift_timer > 0:
             drift_timer -= 1
             
-        # Background NEAT genetic drift every 600 ticks
-        if tick % 600 == 0:
+        # Background NEAT genetic drift every 1200 ticks
+        if tick % 1200 == 0:
             drift_timer = 90  # Show indicator for ~3 seconds
             
             # [BALANCE] Connection penalty removed (was -connections×0.05); no longer penalizes neural complexity
@@ -157,7 +168,8 @@ def run_infinite(config_path, world_name, render=True):
                 (sandbox.agent_energy * 5.0)
                 + (sandbox.agent_age.astype(float) * 0.1)
                 + (sandbox.kill_count.astype(float) * 50.0)
-                + (sandbox.signal_assists.astype(float) * 30.0)
+                + (sandbox.signal_assists.astype(float) * 10.0)
+                + (np.minimum(reached_premium_count.astype(float), 100.0) * 1.0)
             )
             
             # Set fitness on current NEAT population

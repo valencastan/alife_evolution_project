@@ -101,7 +101,8 @@ class Visualizer:
         self.overlay_surf.fill((0, 0, 0, 200))
 
         self.particles = []
-        self.trails    = {}
+        self.trail_history = np.zeros((50, 60, 2), dtype=np.float32)
+        self.energy_history = np.zeros((50, 100), dtype=np.float32)
 
         self.oracle       = Oracle(world_name=world_name)
         self.oracle_msg   = ""
@@ -298,33 +299,45 @@ class Visualizer:
         self.particles = surviving
 
     def update_and_draw_trails(self, alive_indices):
-        top_10    = sorted(alive_indices, key=lambda x: self.sandbox.agent_age[x], reverse=True)[:10]
-        to_delete = [k for k in self.trails.keys() if k not in top_10]
-        for k in to_delete:
-            del self.trails[k]
-
-        for aid in top_10:
-            if self.sandbox.is_camouflaged[aid]:
-                if aid in self.trails:
-                    self.trails[aid].clear()
+        if len(alive_indices) == 0:
+            return
+            
+        alpha_idx = alive_indices[np.argmax(self.sandbox.agent_age[alive_indices])]
+        carnivore_idx = np.where(self.sandbox.is_carnivore & self.sandbox.agent_alive)[0]
+        legendary_idx = None
+        if len(carnivore_idx) > 0:
+            legendary_idx = carnivore_idx[np.argmax(self.sandbox.kill_count[carnivore_idx])]
+            
+        target_agents = [aid for aid in [alpha_idx, legendary_idx] if aid is not None]
+        
+        for aid in set(target_agents):
+            if not self.sandbox.agent_alive[aid] or self.sandbox.is_camouflaged[aid]:
                 continue
-            if aid not in self.trails:
-                self.trails[aid] = []
-            pos = self.sandbox.agent_positions[aid]
-            self.trails[aid].append((int(pos[0]), int(pos[1])))
-
-            t_len = 100 if self.sandbox.is_overdriving[aid] else 50
-            if len(self.trails[aid]) > t_len:
-                self.trails[aid].pop(0)
-
-            if len(self.trails[aid]) > 1:
-                pts          = self.trails[aid]
-                is_legendary = self.sandbox.kill_count[aid] >= 7
-                c            = (20, 5, 20) if is_legendary else (100, 100, 100)
-                for i in range(len(pts) - 1):
-                    alpha     = int((i / len(pts)) * 200) if is_legendary else int((i / len(pts)) * 100)
-                    thickness = 4 if is_legendary else 1
-                    pygame.draw.line(self.virtual_screen, (*c, alpha), pts[i], pts[i + 1], thickness)
+            
+            pts = self.trail_history[aid]
+            energies = self.energy_history[aid]
+            is_legendary = (aid == legendary_idx)
+            c_base = (20, 5, 20) if is_legendary else (100, 100, 100)
+            
+            for i in range(59):
+                if (pts[i, 0] == 0 and pts[i, 1] == 0) or (pts[i+1, 0] == 0 and pts[i+1, 1] == 0):
+                    break
+                    
+                p1 = (int(pts[i, 0]), int(pts[i, 1]))
+                p2 = (int(pts[i+1, 0]), int(pts[i+1, 1]))
+                
+                delta_e = energies[i] - energies[i+1] # t - (t-1)
+                
+                if delta_e > 0.5:
+                    color = (0, 255, 150)
+                elif delta_e < -0.1:
+                    color = (255, 50, 50)
+                else:
+                    color = c_base
+                    
+                alpha = int(255 * (1.0 - i / 59.0))
+                thickness = max(1, 4 - int(i / 15))
+                pygame.draw.line(self.virtual_screen, (*color, alpha), p1, p2, thickness)
 
     DESERT_SAND = (210, 180, 140)
 
@@ -376,10 +389,12 @@ class Visualizer:
                   + 11                  # E-bar
                   + 13                  # V-bar
                   + (fh + 16) * 2 + 4  # 2×2 stat grid
+                  + (fsh + 6)           # plasticity
+                  + 38                  # sparkline
                   + (fsh + 6) * badge_rows if state_badges else 0
                   + pad)
         # Clamp to a sane minimum
-        card_h = max(card_h, 160)
+        card_h = max(card_h, 220)
 
         # ── 1. Panel background (opaque, drawn FIRST) ───────────────────────
         bg_surf = pygame.Surface((panel_w, card_h))
@@ -446,6 +461,52 @@ class Visualizer:
             surf.blit(lbl_s, (gx + 4, gy + 2))
             surf.blit(val_s, (gx + 4, gy + 2 + fsh))
         cy += (fh + 16) * 2 + 4
+
+        # ── Neural Plasticity Monitor ─────────────────────────────────────
+        if getattr(self, 'compute_engine', None) is not None:
+            w_gene = self.compute_engine.W[agent_idx]
+            w_learn = self.compute_engine.W_learned[agent_idx]
+            gene_norm = np.abs(w_gene).sum()
+            learn_norm = np.abs(w_learn).sum()
+            total_norm = gene_norm + learn_norm
+            ratio = learn_norm / total_norm if total_norm > 0 else 0.0
+            
+            p_lbl = fs.render("Plasticidad", True, (110, 110, 120))
+            surf.blit(p_lbl, (panel_x + pad, cy))
+            
+            bar_w = 40
+            bar_h = 4
+            bx = panel_x + panel_w - pad - bar_w
+            by = cy + fsh // 2 - bar_h // 2
+            pygame.draw.rect(surf, (40, 42, 55), (bx, by, bar_w, bar_h))
+            if ratio > 0:
+                fill_w = max(1, int(ratio * bar_w))
+                c_ratio = (100, int(200 + 55*ratio), int(200 + 55*ratio)) # Teal/Cyan
+                pygame.draw.rect(surf, c_ratio, (bx, by, fill_w, bar_h))
+            
+            cy += fsh + 6
+
+        # ── Energy Oscilloscope (Sparkline) ────────────────────────────────
+        spark_w = iw
+        spark_h = 30
+        spark_rect = pygame.Rect(panel_x + pad, cy, spark_w, spark_h)
+        pygame.draw.rect(surf, (22, 24, 34), spark_rect)
+        pygame.draw.rect(surf, (40, 42, 55), spark_rect, 1)
+        
+        hist = self.energy_history[agent_idx] # 100 length
+        pts = []
+        for i in range(100):
+            if hist[i] == 0 and i > 0:
+                continue # Skip uninitialized values during first ticks
+            x = spark_rect.right - int((i / 99.0) * spark_w)
+            val = min(150.0, hist[i])
+            y = spark_rect.bottom - int((val / 150.0) * spark_h)
+            pts.append((x, y))
+        
+        if len(pts) > 1:
+            pygame.draw.aalines(surf, (45, 184, 122), False, pts)
+        
+        cy += spark_h + 8
 
         # State badge pills
         if state_badges:
@@ -597,6 +658,7 @@ class Visualizer:
             (f"Tick {tick}",                                        COLOR_MUTED),
             (f"Deriva: {'ACTIVA' if genetic_drift_active else 'EN ESPERA'}", COLOR_HERB if genetic_drift_active else COLOR_MUTED),
             (drought_pill,                                          drought_col),
+            ("OASIS ACTIVO",                                        COLOR_AMBER),
         ]
         px5 = center_x
         for ptxt, pcol in pills5:
@@ -797,7 +859,14 @@ class Visualizer:
     # Main render loop
     # -----------------------------------------------------------------------
     def render(self, actions, active_conn_counts, genetic_drift_active=False,
-               tick=0, generation=0):
+               tick=0, generation=0, compute_engine=None):
+        self.compute_engine = compute_engine
+        
+        self.trail_history = np.roll(self.trail_history, 1, axis=1)
+        self.trail_history[:, 0] = self.sandbox.agent_positions
+        self.energy_history = np.roll(self.energy_history, 1, axis=1)
+        self.energy_history[:, 0] = self.sandbox.agent_energy
+
         # Fondo
         if self.sandbox.drought_active:
             self.virtual_screen.fill(self.DESERT_SAND)
@@ -949,6 +1018,13 @@ class Visualizer:
             pygame.draw.circle(self.virtual_screen, (40, 150, 40), (int(fx), int(fy)), 6)
             self.virtual_screen.blit(self.tex_comida, (int(fx) - 4, int(fy) - 4))
 
+        # Oasis Render (Golden Pulse)
+        px, py = self.sandbox.premium_pos
+        oasis_surf = pygame.Surface((240, 240), pygame.SRCALPHA)
+        pygame.draw.circle(oasis_surf, (255, 215, 0, 30), (120, 120), 120)
+        pygame.draw.circle(oasis_surf, (255, 215, 0, 60), (120, 120), 120, 2)
+        self.virtual_screen.blit(oasis_surf, (int(px - 120), int(py - 120)))
+
         alpha_idx      = None
         legendary_idx  = None
         carnivores_alive = 0
@@ -1025,6 +1101,15 @@ class Visualizer:
                     self.draw_polygon_glow(self.virtual_screen, color, pos, angle, base_radius // 2, idx, active_conn_counts)
                 else:
                     self.draw_polygon_glow(self.virtual_screen, color, pos, angle, base_radius, idx, active_conn_counts)
+
+                # Frenzy Aura (Subtle Red Pulse)
+                if self.sandbox.frenzy_timer[idx] > 0:
+                    pulse = (math.sin(pygame.time.get_ticks() * 0.01) + 1.0) * 0.5
+                    # Respetar sigilo: si está camuflado, el pulso es más tenue
+                    alpha_base = 60 if is_camo else 120
+                    f_alpha = int(alpha_base + pulse * 60)
+                    f_rad = base_radius + 6 + int(pulse * 3)
+                    pygame.draw.circle(self.virtual_screen, (255, 30, 30, f_alpha), (int(pos[0]), int(pos[1])), f_rad, 2)
 
                 if self.sandbox.is_carnivore[idx]:
                     carnivores_alive += 1
