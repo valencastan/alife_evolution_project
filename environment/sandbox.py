@@ -507,8 +507,7 @@ class Sandbox:
             self.agent_positions[wall_huggers] += dirs * 6.0
             energy_cost[wall_huggers] *= 5.0 # Camping penalty
             
-        # Energy Saturation Cap & Bloating Penalty
-        energy_cost[(self.agent_energy > 80.0) & ~self.is_carnivore] *= 1.5
+        # [LONGEVIDAD] Bloating penalty was removed to allow Sages to hoard energy without dying rapidly.
         self.agent_energy -= energy_cost
         self.agent_energy = np.clip(self.agent_energy, 0.0, 150.0)
         
@@ -617,8 +616,9 @@ class Sandbox:
             self.signal_assists[sig_indices] += assists_gained
             
             # [HOTFIX] Refuerzo de Dopamina Social Hbbiano
+            # Reduced to 0.05 to prevent 'Wireheading Seizures' where +1.0 every frame saturates all motor weights!
             successful = sig_indices[assists_gained > 0]
-            self.reward_signal[successful] += 1.0
+            self.reward_signal[successful] += 0.05
         
         # 3. Eating Passive Flora
         if np.any(self.food_active) and np.any(self.agent_alive):
@@ -626,7 +626,10 @@ class Sandbox:
             
             diffs = self.agent_positions[alive_indices, np.newaxis, :] - self.food_positions[active_food_idx][np.newaxis, :, :]
             dist_sq = diffs[:, :, 0]**2 + diffs[:, :, 1]**2
-            eaters = np.any(dist_sq < 100.0, axis=1) & ~self.is_carnivore[alive_indices] # Carnivores can't eat green food
+            
+            # [REBALANCE] "Caminar para Pastar": Evita manadas de langostas a supervelocidad obligándolos a frenar para comer.
+            valid_grazers = ~self.is_carnivore[alive_indices] & (speed_sq[alive_indices] < 16.0) # Speed < 4.0
+            eaters = np.any(dist_sq < 100.0, axis=1) & valid_grazers
             
             if np.any(eaters):
                 closest_food_local = np.argmin(dist_sq, axis=1)
@@ -661,8 +664,8 @@ class Sandbox:
                 self.agent_positions[died, 1] = spawn_y
                 self.agent_angles[died] = np.random.uniform(0, 2 * np.pi)
                 
-                # [REBALANCE] Energia de spawn estandarizada — todos los agentes inician con la misma base.
-                self.agent_energy[died] = 150.0
+                # [REBALANCE] Spawn estandarizado: 100.0 energía. (Previene que un recién nacido clone instantáneamente en el tick 1)
+                self.agent_energy[died] = 100.0
                 
                 self.agent_age[died] = 0
                 # New agents always spawn as herbivores regardless of alpha type
@@ -685,9 +688,9 @@ class Sandbox:
             self.agent_alive[died_this_tick] = False
 
         # Independent High-End Clone Spawns (Mitosis)
-        # Herbivores reproduce faster (75 energy) — gives prey population recovery advantage
-        herb_clone_ready = self.agent_alive & ~self.is_carnivore & (self.agent_energy >= 75.0)
-        carn_clone_ready = self.agent_alive & self.is_carnivore  & (self.agent_energy >= 90.0)
+        # Herbivores reproduce min marginally faster (140 vs 145)
+        herb_clone_ready = self.agent_alive & ~self.is_carnivore & (self.agent_energy >= 140.0)
+        carn_clone_ready = self.agent_alive & self.is_carnivore  & (self.agent_energy >= 145.0)
         ready_to_clone = np.where(herb_clone_ready | carn_clone_ready)[0]
         for parent_id in ready_to_clone:
             inactive_slots = np.where(~self.agent_alive)[0]
@@ -696,8 +699,10 @@ class Sandbox:
                 self.agent_alive[child_id] = True
                 self.agent_positions[child_id] = self.agent_positions[parent_id] + np.random.uniform(-5, 5, 2)
                 self.agent_angles[child_id] = self.agent_angles[parent_id] + np.pi 
-                self.agent_energy[parent_id] = 45.0
-                self.agent_energy[child_id] = 45.0
+                
+                # Parent loses 60 energy to spawn child, maintaining a healthy >80 range
+                self.agent_energy[parent_id] -= 60.0
+                self.agent_energy[child_id] = 60.0
                 self.agent_age[child_id] = 0
                 self.is_carnivore[child_id] = self.is_carnivore[parent_id]
                 self.kill_count[child_id] = 0
