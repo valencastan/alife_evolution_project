@@ -49,11 +49,14 @@ class ComputeEngine:
         self.b[child_idx] = np.copy(self.b[parent_idx])
         self.states[child_idx] = np.copy(self.states[parent_idx])
 
-    def update_learning(self, current_energy, lr=0.001):
-        """Vectorized weight update using energy delta as reward signal."""
-        delta = np.clip(current_energy - self.prev_energy, -5.0, 5.0)  # (capacity,)
-        # Soften negative rewards (punishment is 10x weaker)
-        delta = np.where(delta < 0, delta * 0.1, delta)
+    def update_learning(self, current_energy, reward_signal=None, lr=0.001):
+        """Vectorized weight update using energy delta as reward signal OR a sparse impulse."""
+        if reward_signal is not None:
+            delta = reward_signal
+        else:
+            delta = np.clip(current_energy - self.prev_energy, -5.0, 5.0)  # (capacity,)
+            # Soften negative rewards (punishment is 10x weaker)
+            delta = np.where(delta < 0, delta * 0.1, delta)
 
         # outer product: each agent's state × output slice, scaled by reward
         out_start = self.num_inputs

@@ -38,7 +38,7 @@ def run_infinite(config_path, world_name, render=True):
     )
     
     sandbox = Sandbox(num_agents=config.pop_size, max_capacity=50, num_food=100, width=800, height=600)
-    neat_bridge = NeatBridge(num_inputs=13, num_outputs=7, max_nodes=50)
+    neat_bridge = NeatBridge(num_inputs=15, num_outputs=7, max_nodes=50)
     
     god_mode = GodMode(sandbox)
     visualizer = Visualizer(sandbox, god_mode, fps=30, world_name=world_name) if render else None
@@ -60,6 +60,8 @@ def run_infinite(config_path, world_name, render=True):
     initial_genomes = list(pop.population.items())
     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
     compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
+    compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
+    compute_engine.b[:, 16] += 2.0  # Dynamic forward thrust
     active_conn_counts = np.zeros(50, dtype=np.int32)
     num_starters = len(initial_genomes)
     active_conn_counts[:num_starters] = conn_counts[:num_starters]
@@ -88,7 +90,7 @@ def run_infinite(config_path, world_name, render=True):
         inputs = sandbox.get_sensory_inputs()
         actions = compute_engine.step(inputs)
         extinct = sandbox.step(actions, active_conn_counts)
-        compute_engine.update_learning(sandbox.agent_energy, lr=0.001)
+        compute_engine.update_learning(sandbox.agent_energy, reward_signal=sandbox.reward_signal, lr=0.05)
         
         # Oasis Discovery Tracking (Herbivores only)
         herbivore_mask = ~sandbox.is_carnivore & sandbox.agent_alive
@@ -97,8 +99,8 @@ def run_infinite(config_path, world_name, render=True):
         # Apply Neural Bias to new predators
         if np.any(sandbox.new_carnivores_this_tick):
             for aid in np.where(sandbox.new_carnivores_this_tick)[0]:
-                compute_engine.b[aid, 0] += 1.0 # Turn Bias
-                compute_engine.b[aid, 1] += 2.0 # Acceleration Bias
+                compute_engine.b[aid, 15] += 1.0 # Turn Bias (Node 15)
+                compute_engine.b[aid, 16] += 2.0 # Acceleration Bias (Node 16)
         
         # Handle total extinction
         if extinct or not np.any(sandbox.agent_alive):
@@ -112,6 +114,8 @@ def run_infinite(config_path, world_name, render=True):
                     initial_genomes = list(pop.population.items())
                     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
                     compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
+                    compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
+                    compute_engine.b[:, 16] += 2.0  # Dynamic forward thrust
                     active_conn_counts = np.zeros(50, dtype=np.int32)
                     active_conn_counts[:len(initial_genomes)] = conn_counts[:len(initial_genomes)]
                     genome_pool_W = None
@@ -139,11 +143,15 @@ def run_infinite(config_path, world_name, render=True):
                 compute_engine.states[child_id] = 0.0
                 active_conn_counts[child_id] = genome_pool_conns[genome_pool_cursor]
                 reached_premium_count[child_id] = 0
+                compute_engine.b[child_id, 15] += 1.0  # Center steering
+                compute_engine.b[child_id, 16] += 2.0  # Dynamic forward thrust
                 genome_pool_cursor += 1
             else:
                 compute_engine.clone_agent(parent_id, child_id)
                 compute_engine.inherit_learned(parent_id, child_id, decay=0.7)
                 active_conn_counts[child_id] = active_conn_counts[parent_id]
+                compute_engine.b[child_id, 15] += 1.0  # Center steering
+                compute_engine.b[child_id, 16] += 2.0  # Dynamic forward thrust
         
         genetic_drift_active = drift_timer > 0
         

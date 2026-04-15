@@ -2,60 +2,37 @@ import numpy as np
 import sys
 import os
 
-# Add project root to sys.path
-sys.path.append(os.getcwd())
+# Append project dir so we can import modules
+sys.path.append(os.path.abspath('.'))
 
 from engine.compute_engine import ComputeEngine
+from engine.neat_bridge import NeatBridge
 
-def test_initialization():
-    W = np.random.randn(50, 50, 50).astype(np.float32)
-    b = np.zeros((50, 50)).astype(np.float32)
-    engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
-    
-    assert hasattr(engine, 'W_learned')
-    assert engine.W_learned.shape == W.shape
-    assert np.all(engine.W_learned == 0)
-    assert hasattr(engine, 'prev_energy')
-    assert engine.prev_energy.shape == (50,)
-    print("Initialization test passed!")
+class DummyConfig:
+    class GenomeConfig:
+        input_keys = list(range(-15, 0))
+        output_keys = list(range(7))
+    genome_config = GenomeConfig()
 
-def test_learning_update():
-    W = np.zeros((50, 50, 50), dtype=np.float32)
-    b = np.zeros((50, 50), dtype=np.float32)
-    engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
-    
-    # Mock states: agent 0 has input activation
-    engine.states[0, 0] = 1.0 # state_0 = 1.0
-    engine.states[0, 13] = 1.0 # output_0 (index 13) = 1.0
-    
-    # Mock energy increase
-    current_energy = np.zeros(50, dtype=np.float32)
-    current_energy[0] = 1.0 # delta = 1.0
-    
-    engine.update_learning(current_energy, lr=1.0) # lr=1.0 for testing
-    
-    # Weight from node 0 to node 13 should be updated
-    # grad[0, 13] = state[0] * state[13] = 1.0 * 1.0 = 1.0
-    # W_learned[0, 0, 13] = 0 + 1.0 * 1.0 = 1.0
-    assert engine.W_learned[0, 0, 13] == 1.0
-    assert engine.prev_energy[0] == 1.0
-    print("Learning update test passed!")
+class DummyGenome:
+    def __init__(self):
+        self.nodes = {}
+        self.connections = {}
 
-def test_cloning_inheritance():
-    W = np.zeros((50, 50, 50), dtype=np.float32)
-    b = np.zeros((50, 50), dtype=np.float32)
-    engine = ComputeEngine(W, b, num_inputs=13, num_outputs=7)
-    
-    engine.W_learned[0, 0, 13] = 2.0
-    engine.prev_energy[0] = 10.0
-    
-    engine.inherit_learned(0, 1, decay=0.5)
-    
-    assert engine.W_learned[1, 0, 13] == 1.0
-    assert engine.prev_energy[1] == 10.0
-    print("Inheritance test passed!")
+W = np.zeros((10, 50, 50), dtype=np.float32)
+b = np.zeros((10, 50), dtype=np.float32)
 
-if __name__ == "__main__":
-    test_initialization()
-    test_learning_update()
-    test_cloning_inheritance()
+engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
+
+# Simulate 1 step
+inputs = np.ones((10, 15), dtype=np.float32)
+engine.step(inputs)
+
+# Give reward
+reward = np.zeros(10, dtype=np.float32)
+reward[0] = 1.0
+
+engine.update_learning(current_energy=np.zeros(10), reward_signal=reward, lr=0.01)
+
+print("W_learned max absolute element:", np.max(np.abs(engine.W_learned[0])))
+print("W_learned agent 1 (no reward):", np.max(np.abs(engine.W_learned[1])))

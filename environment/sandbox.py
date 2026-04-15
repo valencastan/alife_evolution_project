@@ -74,6 +74,7 @@ class Sandbox:
         self.pulse_events = [] # (x, y) visually rendered refractive waves
         self.spawn_events = [] # (x, y) for spawn animation rings
         self.new_carnivores_this_tick = np.zeros(max_capacity, dtype=bool)
+        self.reward_signal = np.zeros(max_capacity, dtype=np.float32)
         
         self.food_energy = np.zeros(self.num_food, dtype=np.float32) + 40.0
         
@@ -150,14 +151,25 @@ class Sandbox:
             spawn_idx = np.random.choice(inactive_indices, spawns_needed, replace=False)
             n = len(spawn_idx)
             
-            # Asignar cada food item a un centro de cluster aleatorio (vectorizado)
-            center_assignments = np.random.randint(0, len(self.food_centers), size=n)
-            cx = self.food_centers[center_assignments, 0]
-            cy = self.food_centers[center_assignments, 1]
+            num_premium = int(np.ceil(0.7 * n))
+            num_cluster = n - num_premium
             
-            # Dispersíon gaussiana vectorial alrededor de los centros
-            r   = np.random.normal(0, 30.0, size=n)
+            cx = np.zeros(n, dtype=np.float32)
+            cy = np.zeros(n, dtype=np.float32)
+            r  = np.zeros(n, dtype=np.float32)
             ang = np.random.uniform(0, 2 * np.pi, size=n)
+            
+            if num_premium > 0:
+                cx[:num_premium] = self.premium_pos[0]
+                cy[:num_premium] = self.premium_pos[1]
+                r[:num_premium] = np.sqrt(np.random.uniform(0, 1, size=num_premium)) * 120.0
+                
+            if num_cluster > 0:
+                center_assignments = np.random.randint(0, len(self.food_centers), size=num_cluster)
+                cx[num_premium:] = self.food_centers[center_assignments, 0]
+                cy[num_premium:] = self.food_centers[center_assignments, 1]
+                r[num_premium:] = np.random.normal(0, 30.0, size=num_cluster)
+            
             self.food_positions[spawn_idx, 0] = np.clip(cx + r * np.cos(ang), 0, self.width)
             self.food_positions[spawn_idx, 1] = np.clip(cy + r * np.sin(ang), 0, self.height)
             self.food_active[spawn_idx] = True
@@ -211,6 +223,12 @@ class Sandbox:
             active_is_bush_pred = bush_pred_global[active_ids]
             perceived_dist_a[:, active_is_bush_pred] /= 0.3
             
+            # ── Context Aware Vision ─────────────────────────────────────────
+            # Herbivores only see Carnivores. Carnivores only see Herbivores.
+            is_carn = self.is_carnivore[active_ids]
+            target_mask = is_carn[:, np.newaxis] != is_carn[np.newaxis, :]
+            perceived_dist_a[~target_mask] = np.inf
+            
             categorize_rays(ang_a, perceived_dist_a, 6)
             # ────────────────────────────────────────────────────────────────
             
@@ -220,9 +238,9 @@ class Sandbox:
             visible_energies = np.where(scent_mask, energy_matrix, 0.0)
             self.sensory_inputs[active_ids, 11] = np.max(visible_energies, axis=1) / 150.0
             
-            # Input 12: Target Velocity (Ignore invisible targets)
-            closest_idx = np.argmin(dist_a, axis=1)
-            valid_closest = dist_a[np.arange(len(dist_a)), closest_idx] < np.inf
+            # Input 12: Target Velocity (Track the context-aware target)
+            closest_idx = np.argmin(perceived_dist_a, axis=1)
+            valid_closest = perceived_dist_a[np.arange(len(perceived_dist_a)), closest_idx] < np.inf
             
             for index, aid in enumerate(active_ids):
                 if valid_closest[index]:
@@ -287,6 +305,7 @@ class Sandbox:
         self.pulse_events.clear()
         self.spawn_events.clear()
         self.new_carnivores_this_tick.fill(False)
+        self.reward_signal = np.zeros(self.max_capacity, dtype=np.float32)
         alive_mask = self.agent_alive
         alive_indices = np.where(alive_mask)[0]
         
@@ -318,6 +337,8 @@ class Sandbox:
             corners = [(100, 100), (700, 100), (100, 500), (700, 500)]
             choice = np.random.randint(0, len(corners))
             self.premium_pos = np.array(corners[choice], dtype=np.float32)
+            self.food_active.fill(False)
+            self._spawn_food(self.num_food)
         # ──────────────────────────────────────────────────────────────────
         
         
@@ -445,7 +466,7 @@ class Sandbox:
         energy_cost[self.is_carnivore] *= 1.4  # Metabolismo carnívoro 1.4x
         energy_cost[ghost_attempts] += 0.20 # HEAVY neural camo cost to prevent hiding forever
         energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost
-        energy_cost[self.agent_signals > 0.5] += 0.08 # Semantic filter: metabolic cost to broadcasting noise
+        energy_cost[self.agent_signals > 0.5] += 0.40 # Semantic filter: metabolic cost to broadcasting noise
         energy_cost[self.in_burrow] *= 2.0 # Burrow stagnation multiplier
         energy_cost[alarm_receivers] += 0.1  # [ALARMA EMERGENTE] Costo metabólico del sprint de pánico
         
@@ -550,6 +571,7 @@ class Sandbox:
                     # Successful bite!
                     energy_stolen = np.maximum(40.0, self.agent_energy[victim]) # Massive harvest
                     self.agent_energy[b_idx] = min(150.0, self.agent_energy[b_idx] + energy_stolen)
+                    self.reward_signal[b_idx] = 1.0
                     v_pos = self.agent_positions[victim].copy()
                     self.predation_events.append((v_pos[0], v_pos[1], victim))
                     self.agent_energy[victim] = -10.0
@@ -578,20 +600,25 @@ class Sandbox:
                     break # Only bite one per tick
         
         # [ALARMA EMERGENTE] Atribución de crédito vectorial por señal de alarma útil
-        # Un emisor recibe crédito si: emite señal fuerte, hay alarm_receivers vivos cerca, y NO fue cazado este tick
         strong_signalers = (self.agent_signals > 0.5) & alive_mask & ~self.is_carnivore
-        if np.any(strong_signalers) and np.any(alarm_receivers):
+        herbivores_alive = alive_mask & ~self.is_carnivore # Cualquier herbívoro cercano es un receptor válido
+        if np.any(strong_signalers) and sum(herbivores_alive) > 1:
             sig_pos   = self.agent_positions[strong_signalers]   # (S, 2)
-            recv_pos  = self.agent_positions[alarm_receivers]    # (R, 2)
+            recv_pos  = self.agent_positions[herbivores_alive]    # (R, 2)
             # Distancias entre todos los pares signaler→receiver: (S, R)
             sig_to_recv = np.linalg.norm(
                 sig_pos[:, np.newaxis, :] - recv_pos[np.newaxis, :, :], axis=2
             )
-            # Solo contar receivers dentro del rango de señal (400 unidades)
-            in_range_matrix = sig_to_recv < 400.0          # (S, R) bool
-            assists_gained  = np.sum(in_range_matrix, axis=1).astype(np.int32)  # (S,)
+            # Solo contar receivers a menos de 400 px, y > 0 para no contarse a sí mismos
+            in_range_matrix = (sig_to_recv < 400.0) & (sig_to_recv > 0.1)
+            assists_gained  = np.sum(in_range_matrix, axis=1).astype(np.int32)
+            
             sig_indices = np.where(strong_signalers)[0]
             self.signal_assists[sig_indices] += assists_gained
+            
+            # [HOTFIX] Refuerzo de Dopamina Social Hbbiano
+            successful = sig_indices[assists_gained > 0]
+            self.reward_signal[successful] += 1.0
         
         # 3. Eating Passive Flora
         if np.any(self.food_active) and np.any(self.agent_alive):
@@ -610,6 +637,7 @@ class Sandbox:
                 self.food_active[global_foods_to_die] = False
                 
                 healed_agents = alive_indices[eater_mask]
+                self.reward_signal[healed_agents] = 1.0
                 # [PREMIUM] Food within Oasis is worth 80.0, else density-scaled baseline
                 food_dens_mult = np.clip(self.num_food / max(1, np.sum(self.food_active)), 0.8, 1.5)
                 # Base energy is taken from the food item itself (set in _spawn_food)
@@ -684,4 +712,8 @@ class Sandbox:
                 self.clones_produced_this_tick.append((parent_id, child_id))
         
         self.agent_age[self.agent_alive] += 1
+        
+        # [REBALANCE] Reduce continuous starvation penalty so it doesn't violently erase Hebbian learning
+        self.reward_signal = np.where((self.agent_energy < 30) & self.agent_alive, -0.05, self.reward_signal)
+        
         return not np.any(self.agent_alive)

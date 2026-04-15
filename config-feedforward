@@ -38,18 +38,18 @@ enabled_default         = True
 enabled_mutate_rate     = 0.01
 
 feed_forward            = False
-initial_connection      = full_direct
+initial_connection      = fs_neat_nohidden
 
 # node add/remove rates
 node_add_prob           = 0.5
 node_delete_prob        = 0.2
 
 # network parameters
-# Inputs: Dist_Wall (3), Dist_Food (3), Dist_Predator (3), Energy, Received_Signal, Blood_Scent, Target_Velocity
-num_inputs              = 13
+# Inputs: Dist_Wall (3), Dist_Food (3), Dist_Predator (3), Energy, Received_Signal, Blood_Scent, Target_Velocity, Compass (2)
+num_inputs              = 15
 # Outputs: Turn_Angle, Velocity_Thrust, Emit_Signal, Bite_Action
 num_outputs             = 7
-num_hidden              = 2
+num_hidden              = 0
 
 # node response options
 response_init_mean      = 1.0
