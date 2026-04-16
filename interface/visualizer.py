@@ -222,7 +222,7 @@ class Visualizer:
             l_ren  = self.small_font.render(out_labels[i], True, (180, 180, 180, 180))
             target_surface.blit(l_ren, (lx - l_ren.get_width() // 2, ly - l_ren.get_height() // 2))
 
-    def get_agent_aura(self, idx, actions, active_conn_counts):
+    def get_agent_aura(self, idx, actions, active_conn_counts, active_species_ids=None):
         if self.sandbox.is_carnivore[idx]:
             if self.sandbox.kill_count[idx] >= 7:
                 return (255, 255, 0),  "Titán Alfa"
@@ -858,7 +858,7 @@ class Visualizer:
     # -----------------------------------------------------------------------
     # Main render loop
     # -----------------------------------------------------------------------
-    def render(self, actions, active_conn_counts, genetic_drift_active=False,
+    def render(self, actions, active_conn_counts, active_species_ids=None, genetic_drift_active=False,
                tick=0, generation=0, compute_engine=None):
         self.compute_engine = compute_engine
         
@@ -1040,8 +1040,8 @@ class Visualizer:
             for parent, child in self.sandbox.clones_produced_this_tick:
                 p_pos  = self.sandbox.agent_positions[parent]
                 c_pos  = self.sandbox.agent_positions[child]
-                p_col, _ = self.get_agent_aura(parent, actions, active_conn_counts)
-                c_col, _ = self.get_agent_aura(child,  actions, active_conn_counts)
+                p_col, _ = self.get_agent_aura(parent, actions, active_conn_counts, active_species_ids)
+                c_col, _ = self.get_agent_aura(child,  actions, active_conn_counts, active_species_ids)
                 diff   = c_pos - p_pos
                 dist   = np.linalg.norm(diff)
                 if dist > 0.1:
@@ -1089,7 +1089,7 @@ class Visualizer:
                     self.sandbox.agent_angles[idx] = math.degrees(math.atan2(-dy, dx))
                 angle  = self.sandbox.agent_angles[idx]
                 energy = self.sandbox.agent_energy[idx]
-                color, _ = self.get_agent_aura(idx, actions, active_conn_counts)
+                color, _ = self.get_agent_aura(idx, actions, active_conn_counts, active_species_ids)
 
                 if self.sandbox.is_carnivore[idx] and energy < 20.0 and np.random.random() > 0.5:
                     color = (20, 0, 0)

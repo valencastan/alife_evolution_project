@@ -61,10 +61,19 @@ def run_infinite(config_path, world_name, render=True):
     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
     compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
     compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
-    compute_engine.b[:, 16] += 2.0  # Dynamic forward thrust
+    compute_engine.b[:, 16] += 0.8  # Dynamic forward thrust
     active_conn_counts = np.zeros(50, dtype=np.int32)
+    active_species_ids = np.zeros(50, dtype=np.int32)
     num_starters = len(initial_genomes)
-    active_conn_counts[:num_starters] = conn_counts[:num_starters]
+    for i, (gid, genome) in enumerate(initial_genomes):
+        if i < 50:
+            active_conn_counts[i] = len(genome.nodes) + len(genome.connections)
+            sid = 0
+            for k, s in pop.species.species.items():
+                if gid in s.members:
+                    sid = k
+                    break
+            active_species_ids[i] = sid
 
     # Restore brain weights + states into the live engine (must happen after engine exists)
     if loaded_pop is not None:
@@ -74,6 +83,7 @@ def run_infinite(config_path, world_name, render=True):
     genome_pool_W = None
     genome_pool_b = None
     genome_pool_conns = None
+    genome_pool_species = None
     genome_pool_cursor = 0
     
     reached_premium_count = np.zeros(50, dtype=np.int32)
@@ -100,7 +110,7 @@ def run_infinite(config_path, world_name, render=True):
         if np.any(sandbox.new_carnivores_this_tick):
             for aid in np.where(sandbox.new_carnivores_this_tick)[0]:
                 compute_engine.b[aid, 15] += 1.0 # Turn Bias (Node 15)
-                compute_engine.b[aid, 16] += 2.0 # Acceleration Bias (Node 16)
+                compute_engine.b[aid, 16] += 0.8 # Acceleration Bias (Node 16)
         
         # Handle total extinction
         if extinct or not np.any(sandbox.agent_alive):
@@ -115,9 +125,18 @@ def run_infinite(config_path, world_name, render=True):
                     W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
                     compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
                     compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
-                    compute_engine.b[:, 16] += 2.0  # Dynamic forward thrust
+                    compute_engine.b[:, 16] += 0.8  # Dynamic forward thrust
                     active_conn_counts = np.zeros(50, dtype=np.int32)
-                    active_conn_counts[:len(initial_genomes)] = conn_counts[:len(initial_genomes)]
+                    active_species_ids = np.zeros(50, dtype=np.int32)
+                    for i, (gid, genome) in enumerate(initial_genomes):
+                        if i < 50:
+                            active_conn_counts[i] = len(genome.nodes) + len(genome.connections)
+                            sid = 0
+                            for k, s in pop.species.species.items():
+                                if gid in s.members:
+                                    sid = k
+                                    break
+                            active_species_ids[i] = sid
                     genome_pool_W = None
                     genome_pool_cursor = 0
                     reached_premium_count.fill(0)
@@ -142,21 +161,23 @@ def run_infinite(config_path, world_name, render=True):
                 compute_engine.inherit_learned(parent_id, child_id, decay=0.7)
                 compute_engine.states[child_id] = 0.0
                 active_conn_counts[child_id] = genome_pool_conns[genome_pool_cursor]
+                active_species_ids[child_id] = genome_pool_species[genome_pool_cursor]
                 reached_premium_count[child_id] = 0
                 compute_engine.b[child_id, 15] += 1.0  # Center steering
-                compute_engine.b[child_id, 16] += 2.0  # Dynamic forward thrust
+                compute_engine.b[child_id, 16] += 0.8  # Dynamic forward thrust
                 genome_pool_cursor += 1
             else:
                 compute_engine.clone_agent(parent_id, child_id)
                 compute_engine.inherit_learned(parent_id, child_id, decay=0.7)
                 active_conn_counts[child_id] = active_conn_counts[parent_id]
+                active_species_ids[child_id] = active_species_ids[parent_id]
                 compute_engine.b[child_id, 15] += 1.0  # Center steering
-                compute_engine.b[child_id, 16] += 2.0  # Dynamic forward thrust
+                compute_engine.b[child_id, 16] += 0.8  # Dynamic forward thrust
         
         genetic_drift_active = drift_timer > 0
         
         if render and visualizer:
-            visualizer.render(actions, active_conn_counts, genetic_drift_active,
+            visualizer.render(actions, active_conn_counts, active_species_ids, genetic_drift_active,
                               tick=tick, generation=pop.generation, compute_engine=compute_engine)
             if visualizer.should_quit:
                 oracle_instance.save_world(pop, sandbox, tick, compute_engine=compute_engine)
@@ -205,7 +226,16 @@ def run_infinite(config_path, world_name, render=True):
                 gW, gb, gc = neat_bridge.compile_population(new_genomes, config, max_capacity=50)
                 genome_pool_W = gW
                 genome_pool_b = gb
-                genome_pool_conns = gc
+                genome_pool_conns = np.zeros(50, dtype=np.int32)
+                genome_pool_species = np.zeros(50, dtype=np.int32)
+                for i, (gid, genome) in enumerate(new_genomes):
+                    if i < 50:
+                        genome_pool_conns[i] = len(genome.nodes) + len(genome.connections)
+                        sid = 0
+                        for k, s in pop.species.species.items():
+                            if gid in s.members:
+                                sid = k; break
+                        genome_pool_species[i] = sid
                 genome_pool_cursor = 0
                 
                 # Silently updated the genome pool

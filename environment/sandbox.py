@@ -14,7 +14,7 @@ class Sandbox:
         self.width = width
         self.height = height
         
-        self.max_speed = 6.0
+        self.max_speed = 4.0
         self.vision_range = 150.0
         
         self.agent_positions = np.zeros((max_capacity, 2), dtype=np.float32)
@@ -442,12 +442,20 @@ class Sandbox:
         vx = np.cos(self.agent_angles) * thrust
         vy = np.sin(self.agent_angles) * thrust
         
-        self.agent_velocity[:, 0] = vx
-        self.agent_velocity[:, 1] = vy
-        self.agent_positions[:, 0] = np.clip(self.agent_positions[:, 0] + vx, 0, self.width)
-        self.agent_positions[:, 1] = np.clip(self.agent_positions[:, 1] + vy, 0, self.height)
+        self.agent_velocity[:, 0] += vx
+        self.agent_velocity[:, 1] += vy
         
-        speed_sq = vx**2 + vy**2
+        # [KINETICS] Fricción atmosférica ajustada para peso e inercia real (más pesado y táctico)
+        self.agent_velocity *= 0.85 
+        
+        # Límite duro absoluto para evitar proyectiles infinitos
+        hard_max_speed = 5.0
+        self.agent_velocity = np.clip(self.agent_velocity, -hard_max_speed, hard_max_speed)
+        
+        self.agent_positions[:, 0] = np.clip(self.agent_positions[:, 0] + self.agent_velocity[:, 0], 0, self.width)
+        self.agent_positions[:, 1] = np.clip(self.agent_positions[:, 1] + self.agent_velocity[:, 1], 0, self.height)
+        
+        speed_sq = self.agent_velocity[:, 0]**2 + self.agent_velocity[:, 1]**2
         
         # Explorer Morphogenesis Logic
         fast_agents = (speed_sq > self.max_speed**2) & alive_mask
@@ -462,7 +470,7 @@ class Sandbox:
         
         # [LONGEVIDAD] Base cost: herbívoros -30% (0.14 vs 0.20), carnívoros x1.4 aplicado después
         herbivore_mask = ~self.is_carnivore
-        energy_cost = np.where(herbivore_mask, 0.14, 0.20) + (speed_sq * 0.05)
+        energy_cost = np.where(herbivore_mask, 0.05, 0.08) + (speed_sq * 0.005)
         energy_cost[self.is_carnivore] *= 1.4  # Metabolismo carnívoro 1.4x
         energy_cost[ghost_attempts] += 0.20 # HEAVY neural camo cost to prevent hiding forever
         energy_cost[self.is_overdriving] += 0.02 # Overdrive adrenaline cost
@@ -473,9 +481,9 @@ class Sandbox:
         # [FRENZY] Metabolic discount for hunters
         energy_cost[self.frenzy_timer > 0] *= 0.5
         
-        # [REBALANCE] Carrying Capacity: kicks in from 30 carnivores (vectorizado)
+        # [REBALANCE] Carrying Capacity: kicks in from 20 carnivores (vectorizado)
         carnivore_count = np.sum(self.is_carnivore & alive_mask)
-        cc_multiplier = 1.0 + np.maximum(0.0, (carnivore_count - 30) * 0.02)
+        cc_multiplier = 1.0 + np.maximum(0.0, (carnivore_count - 20) * 0.05)
         energy_cost[self.is_carnivore & alive_mask] *= cc_multiplier
         
         # Burrow Force Eviction
@@ -508,7 +516,8 @@ class Sandbox:
             energy_cost[wall_huggers] *= 5.0 # Camping penalty
             
         # [LONGEVIDAD] Bloating penalty was removed to allow Sages to hoard energy without dying rapidly.
-        self.agent_energy -= energy_cost
+        infancy_mask = self.agent_age < 300
+        self.agent_energy -= np.where(infancy_mask, 0.03, energy_cost)
         self.agent_energy = np.clip(self.agent_energy, 0.0, 150.0)
         
         # [REBALANCE] Hunger Magnetism removed — brain maintains full motor control even in starvation.
@@ -559,16 +568,21 @@ class Sandbox:
         active_biters = np.where(biters)[0]
         if len(active_biters) > 0 and len(alive_indices) > 1:
             for b_idx in active_biters:
-                if self.kill_cooldown[b_idx] > 0:
+                if self.kill_cooldown[b_idx] > 0 or self.agent_energy[b_idx] <= 0:
                     continue
                 
                 # Predators can bite anyone visible to them (handles Titan tracking and normal camo)
                 visible_targets = np.where(dist_a[b_idx] < 15.0)[0]
                 for victim in visible_targets:
-                    if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0: continue
+                    if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0 or self.agent_energy[victim] <= 0: continue
                     
                     # Successful bite!
-                    energy_stolen = np.maximum(40.0, self.agent_energy[victim]) # Massive harvest
+                    # [THERMODYNAMICS] Eating herbivores always yields at least 40. Eating carnivores yields only 50% of their current energy (toxic meat).
+                    if self.is_carnivore[victim]:
+                        energy_stolen = max(5.0, self.agent_energy[victim] * 0.5)
+                    else:
+                        energy_stolen = np.maximum(40.0, self.agent_energy[victim]) # Massive harvest from pure prey
+                        
                     self.agent_energy[b_idx] = min(150.0, self.agent_energy[b_idx] + energy_stolen)
                     self.reward_signal[b_idx] = 1.0
                     v_pos = self.agent_positions[victim].copy()
