@@ -1,7 +1,7 @@
 [NEAT]
 fitness_criterion     = max
 fitness_threshold     = 100000
-pop_size              = 50
+pop_size              = 150
 reset_on_extinction   = False
 no_fitness_termination = False
 
@@ -45,8 +45,8 @@ node_add_prob           = 0.2
 node_delete_prob        = 0.02
 
 # network parameters
-# Inputs: Dist_Wall (3), Dist_Food (3), Dist_Predator (3), Energy, Received_Signal, Blood_Scent, Target_Velocity, Compass (2)
-num_inputs              = 15
+# Inputs: Dist_Wall (3), Dist_Food (3), Dist_Predator (3), Energy, Received_Signal, Blood_Scent, Target_Velocity, Compass (2), HP
+num_inputs              = 16
 # Outputs: Turn_Angle, Velocity_Thrust, Emit_Signal, Bite_Action
 num_outputs             = 7
 num_hidden              = 0

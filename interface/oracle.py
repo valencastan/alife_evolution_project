@@ -114,6 +114,7 @@ class Oracle:
             agent_angles          = sandbox.agent_angles,
             agent_velocity        = sandbox.agent_velocity,
             agent_energy          = sandbox.agent_energy,
+            agent_hp              = sandbox.agent_hp,          # V2.0
             agent_alive           = sandbox.agent_alive,
             agent_age             = sandbox.agent_age,
             agent_signals         = sandbox.agent_signals,
@@ -176,6 +177,11 @@ class Oracle:
                     sandbox.agent_angles[:]           = arrs["agent_angles"]
                     sandbox.agent_velocity[:]         = arrs["agent_velocity"]
                     sandbox.agent_energy[:]           = arrs["agent_energy"]
+                    # V2.0: backward-compatible HP restore
+                    if "agent_hp" in arrs:
+                        sandbox.agent_hp[:] = arrs["agent_hp"]
+                    else:
+                        sandbox.agent_hp[:] = sandbox.MAX_HP  # Legacy save: give full HP
                     sandbox.agent_alive[:]            = arrs["agent_alive"]
                     sandbox.agent_age[:]              = arrs["agent_age"]
                     sandbox.agent_signals[:]          = arrs["agent_signals"]

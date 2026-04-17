@@ -30,9 +30,11 @@ class Visualizer:
         self.should_quit = False
 
         # Dual-Layer Renderer for HUD Aspect Ratio scaling (Letterboxing)
-        self.base_w = int(sandbox.width)   # 800
-        self.base_h = int(sandbox.height)  # 600
-        self.real_screen   = pygame.display.set_mode((1120, 600), pygame.RESIZABLE)
+        self.base_w = int(sandbox.width)
+        self.base_h = int(sandbox.height)
+        # V2.0: window size derived from sandbox dimensions + HUD sidebar
+        sidebar_w = 320
+        self.real_screen   = pygame.display.set_mode((self.base_w + sidebar_w, self.base_h), pygame.RESIZABLE)
         pygame.display.set_caption(f"IpaVerse: {world_name}")
         self.virtual_screen = pygame.Surface((self.base_w, self.base_h))
         self.clock = pygame.time.Clock()
@@ -51,8 +53,28 @@ class Visualizer:
             self.tex_presa    = pygame.image.load(resource_path("assets/textures/presa.png")).convert_alpha()
             self.tex_predador = pygame.image.load(resource_path("assets/textures/depredador.png")).convert_alpha()
             self.tex_comida   = pygame.image.load(resource_path("assets/textures/comida.png")).convert_alpha()
-            self.tex_thicket  = pygame.image.load(resource_path("assets/textures/thicket.png")).convert_alpha()
-            self.tex_sangre   = pygame.image.load(resource_path("assets/textures/sangre.png")).convert_alpha()
+            self.tex_meseta   = pygame.image.load(resource_path("assets/textures/meseta.png")).convert()
+            
+            # V2.0 Tech-Skin Assets with Professional Colorkey (User Solution 1)
+            # 1. New Data Chip (Magenta BG)
+            raw_comida = pygame.image.load(resource_path("assets/textures/comida.png")).convert()
+            raw_comida.set_colorkey((255, 0, 255))
+            self.tex_comida = raw_comida.convert_alpha()
+            
+            # 2. Cyber-Thicket (Matorral) - (White BG Removal)
+            raw_thicket = pygame.image.load(resource_path("assets/textures/thicket.png")).convert()
+            raw_thicket.set_colorkey((255, 255, 255))
+            self.tex_thicket = raw_thicket.convert_alpha()
+
+            # 3. Data Corruption (Swamp) - (White BG Removal)
+            raw_swamp = pygame.image.load(resource_path("assets/textures/swamp.png")).convert()
+            raw_swamp.set_colorkey((255, 255, 255))
+            self.tex_swamp = raw_swamp.convert_alpha()
+
+            # 4. CPU Socket (Oasis) - (White BG Removal)
+            raw_oasis = pygame.image.load(resource_path("assets/textures/oasis.png")).convert()
+            raw_oasis.set_colorkey((255, 255, 255))
+            self.tex_oasis = raw_oasis.convert_alpha()
         except Exception as e:
             print(f"Failed to load textures: {e}")
             self.tex_presa    = pygame.Surface((16, 16), pygame.SRCALPHA)
@@ -69,12 +91,22 @@ class Visualizer:
             (255, 255, 255): self._tint_surface(self.tex_presa, (255, 215, 0)),
         }
 
-        # Grid Ambience Texture
-        self.grid_surf = pygame.Surface((self.base_w, self.base_h), pygame.SRCALPHA)
+        # V2.0 Grid & Background (Abstract Data Mode)
+        self.grid_surf = pygame.Surface((self.base_w, self.base_h))
+        self.grid_surf.fill((0, 0, 0)) # Absolute Black
+        
+        # Grid lines: Clean gray telemetry lines
         for x in range(0, self.base_w, 40):
-            pygame.draw.line(self.grid_surf, (0, 255, 255, 30), (x, 0), (x, self.base_h), 1)
+            pygame.draw.line(self.grid_surf, (40, 42, 45), (x, 0), (x, self.base_h), 1)
         for y in range(0, self.base_h, 40):
-            pygame.draw.line(self.grid_surf, (0, 255, 255, 30), (0, y), (self.base_w, y), 1)
+            pygame.draw.line(self.grid_surf, (40, 42, 45), (0, y), (self.base_w, y), 1)
+
+        # V2.0 Biome Friction Zones Overlay (Abstract Alpha Shapes)
+        self.biome_surf = pygame.Surface((self.base_w, self.base_h), pygame.SRCALPHA)
+        for (zx, zy, zr, zf) in self.sandbox.friction_zones:
+            # Friction area: Semi-transparent Purple/Indigo (Alpha 50)
+            pygame.draw.circle(self.biome_surf, (80, 50, 200, 50), (int(zx), int(zy)), int(zr))
+            pygame.draw.circle(self.biome_surf, (80, 50, 200, 80), (int(zx), int(zy)), int(zr), 1)
 
         self.previous_positions = np.zeros((50, 2))
         self.ema_velocity       = np.zeros(50)
@@ -256,22 +288,30 @@ class Visualizer:
 
         s  = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
         dx, dy = radius * 2, radius * 2
-        pygame.draw.circle(s, (*color, 60),  (dx, dy), radius + 4)
-        pygame.draw.circle(s, (*color, 20),  (dx, dy), radius * 2)
+        
+        # High-Contrast Data Outline
+        pygame.draw.circle(s, (20, 20, 20, 160), (dx, dy), radius + 2)
+        pygame.draw.circle(s, (*color, 60),    (dx, dy), radius + 4)
+        pygame.draw.circle(s, (*color, 20),    (dx, dy), radius * 2)
         surface.blit(s, (px - dx, py - dy))
 
+        # Vector Rendering Replacement (No textures)
         if is_carnivore:
-            sprite = pygame.transform.rotate(self.tex_predador, angle)
-            if self.sandbox.kill_count[idx] >= 7:
-                glow_s = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
-                glow_s.fill((255, 50, 50, 100))
-                sprite.blit(glow_s, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+            # Clean Triangle/Arrow for Virus logic
+            points = [
+                (px + radius * 1.5 * math.cos(math.radians(angle)),
+                 py - radius * 1.5 * math.sin(math.radians(angle))),
+                (px + radius * 1.0 * math.cos(math.radians(angle + 140)),
+                 py - radius * 1.0 * math.sin(math.radians(angle + 140))),
+                (px + radius * 1.0 * math.cos(math.radians(angle - 140)),
+                 py - radius * 1.0 * math.sin(math.radians(angle - 140)))
+            ]
+            pygame.draw.polygon(surface, color, points)
+            pygame.draw.polygon(surface, (255, 255, 255), points, 1) # White highlight
         else:
-            base_tex = self.colored_chips.get(color, self.tex_presa)
-            sprite   = pygame.transform.rotate(base_tex, angle)
-
-        rect = sprite.get_rect(center=(px, py))
-        surface.blit(sprite, rect.topleft)
+            # Clean Chip/Circle for logical units
+            pygame.draw.circle(surface, color, (px, py), radius)
+            pygame.draw.circle(surface, (255, 255, 255), (px, py), radius, 1)
 
     def update_and_draw_particles(self):
         surviving = []
@@ -430,11 +470,21 @@ class Visualizer:
                          (panel_x + pad, cy), (panel_x + panel_w - pad, cy), 1)
         cy += 5
 
+        # HP bar (V2.0) — damage state indicator
+        hp        = sb.agent_hp[agent_idx]
+        hp_ratio  = hp / sb.MAX_HP
+        hp_color  = (int(220 * (1 - hp_ratio)), int(50 + 180 * hp_ratio), 40)  # red → green gradient
+        hp_lbl    = fs.render("HP", True, hp_color)
+        surf.blit(hp_lbl, (panel_x + pad, cy + 1))
+        self.draw_status_bar(surf, panel_x + pad + 20, cy, iw - 20, 7,
+                             hp, sb.MAX_HP, hp_color)
+        cy += 11
+
         # Energy bar
-        e_lbl = fs.render("E", True, (140, 200, 155))
+        e_lbl = fs.render("E", True, (0, 255, 127))
         surf.blit(e_lbl, (panel_x + pad, cy + 1))
         self.draw_status_bar(surf, panel_x + pad + 14, cy, iw - 14, 7,
-                             energy, 100.0, (45, 184, 122))
+                             energy, sb.MAX_ENERGY, (0, 255, 127))
         cy += 11
 
         # Velocity bar
@@ -1001,29 +1051,33 @@ class Visualizer:
 
         frame_time = pygame.time.get_ticks() / 1000.0
 
-        # Thickets
+        # V2.0 Thickets (Abstract Data Clusters)
         for tx, ty, tr in self.sandbox.thickets:
-            jitter     = np.sin(frame_time * 10.0 + tx) * 2.0
-            r_jit      = tr + jitter
-            scaled_thick = pygame.transform.scale(self.tex_thicket, (int(r_jit * 2), int(r_jit * 2)))
-            self.virtual_screen.blit(scaled_thick, (int(tx - r_jit), int(ty - r_jit)))
+            # Solid green octagons/circles for obstruction zones
+            pygame.draw.circle(self.virtual_screen, (40, 120, 60, 100), (int(tx), int(ty)), int(tr))
+            pygame.draw.circle(self.virtual_screen, (40, 200, 100, 200), (int(tx), int(ty)), int(tr), 2)
 
         # Burrows
         for bx, by, br in self.sandbox.burrows:
             pygame.draw.circle(self.virtual_screen, (5, 5, 5),     (int(bx), int(by)), int(br))
             pygame.draw.circle(self.virtual_screen, (80, 20, 80),  (int(bx), int(by)), int(br), 2)
 
-        # Food
+        # Data Packets (Resources - 2x2 Clean Pixels)
         for fx, fy in self.sandbox.food_positions[self.sandbox.food_active]:
-            pygame.draw.circle(self.virtual_screen, (40, 150, 40), (int(fx), int(fy)), 6)
-            self.virtual_screen.blit(self.tex_comida, (int(fx) - 4, int(fy) - 4))
+            # Simple square pixels for resources
+            pygame.draw.rect(self.virtual_screen, (0, 255, 180), (int(fx)-2, int(fy)-2, 4, 4))
 
-        # Oasis Render (Golden Pulse)
+        # V2.0 Abstract Data Layer: Black -> Biomes -> Oasis
+        self.virtual_screen.blit(self.grid_surf, (0, 0))
+        self.virtual_screen.blit(self.biome_surf, (0, 0))
+
+        # Oasis Render (Abstract Healing Zone)
         px, py = self.sandbox.premium_pos
-        oasis_surf = pygame.Surface((240, 240), pygame.SRCALPHA)
-        pygame.draw.circle(oasis_surf, (255, 215, 0, 30), (120, 120), 120)
-        pygame.draw.circle(oasis_surf, (255, 215, 0, 60), (120, 120), 120, 2)
-        self.virtual_screen.blit(oasis_surf, (int(px - 120), int(py - 120)))
+        pulse = 1.0 + 0.08 * np.sin(frame_time * 4.0)
+        # Cyan Glow Circle
+        pygame.draw.circle(self.virtual_screen, (0, 255, 255, 30), (int(px), int(py)), int(120 * pulse))
+        pygame.draw.circle(self.virtual_screen, (0, 255, 255, 80), (int(px), int(py)), int(115 * pulse), 1)
+        pygame.draw.circle(self.virtual_screen, (255, 255, 255, 120), (int(px), int(py)), 5, 0) # Core point
 
         alpha_idx      = None
         legendary_idx  = None
