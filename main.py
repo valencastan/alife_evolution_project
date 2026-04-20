@@ -37,8 +37,8 @@ def run_infinite(config_path, world_name, render=True):
         config_path
     )
     
-    sandbox = Sandbox(num_agents=config.pop_size, max_capacity=180, num_food=400, width=1600, height=1200)
-    neat_bridge = NeatBridge(num_inputs=16, num_outputs=7, max_nodes=100)
+    sandbox = Sandbox(num_agents=config.pop_size, max_capacity=50, num_food=100, width=800, height=600)
+    neat_bridge = NeatBridge(num_inputs=15, num_outputs=7, max_nodes=50)
     
     god_mode = GodMode(sandbox)
     visualizer = Visualizer(sandbox, god_mode, fps=30, world_name=world_name) if render else None
@@ -58,15 +58,15 @@ def run_infinite(config_path, world_name, render=True):
 
     # Initial genome compilation (always compile from saved/fresh pop first)
     initial_genomes = list(pop.population.items())
-    W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=180)
-    compute_engine = ComputeEngine(W, b, num_inputs=16, num_outputs=7)
+    W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
+    compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
     compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
     compute_engine.b[:, 16] += 0.8  # Dynamic forward thrust
-    active_conn_counts = np.zeros(180, dtype=np.int32)
-    active_species_ids = np.zeros(180, dtype=np.int32)
+    active_conn_counts = np.zeros(50, dtype=np.int32)
+    active_species_ids = np.zeros(50, dtype=np.int32)
     num_starters = len(initial_genomes)
     for i, (gid, genome) in enumerate(initial_genomes):
-        if i < 180:
+        if i < 50:
             active_conn_counts[i] = len(genome.nodes) + len(genome.connections)
             sid = 0
             for k, s in pop.species.species.items():
@@ -86,7 +86,7 @@ def run_infinite(config_path, world_name, render=True):
     genome_pool_species = None
     genome_pool_cursor = 0
     
-    reached_premium_count = np.zeros(180, dtype=np.int32)
+    reached_premium_count = np.zeros(50, dtype=np.int32)
     
     drift_timer = 0
     
@@ -122,14 +122,14 @@ def run_infinite(config_path, world_name, render=True):
                     # Recompile fresh NEAT population
                     pop = neat.Population(config)
                     initial_genomes = list(pop.population.items())
-                    W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=180)
-                    compute_engine = ComputeEngine(W, b, num_inputs=16, num_outputs=7)
+                    W, b, conn_counts = neat_bridge.compile_population(initial_genomes, config, max_capacity=50)
+                    compute_engine = ComputeEngine(W, b, num_inputs=15, num_outputs=7)
                     compute_engine.b[:, 15] += 1.0  # Center steering (Turn Angle)
                     compute_engine.b[:, 16] += 0.8  # Dynamic forward thrust
-                    active_conn_counts = np.zeros(180, dtype=np.int32)
-                    active_species_ids = np.zeros(180, dtype=np.int32)
+                    active_conn_counts = np.zeros(50, dtype=np.int32)
+                    active_species_ids = np.zeros(50, dtype=np.int32)
                     for i, (gid, genome) in enumerate(initial_genomes):
-                        if i < 180:
+                        if i < 50:
                             active_conn_counts[i] = len(genome.nodes) + len(genome.connections)
                             sid = 0
                             for k, s in pop.species.species.items():

@@ -5,27 +5,22 @@ def normalize_angle(theta):
 
 class Sandbox:
     """
-    IpaVerse Sandbox V2.0: Dual-Bar Biology (HP/Energy), Biome Friction Map,
-    Trophic Cascades, Apex Predation locking, and Persistent Async Evolution.
+    IpaVerse Sandbox: Features Trophic Cascades, Apex Predation locking, 
+    and Persistent Async Evolution.
     """
-    # ── Energy constants ────────────────────────────────────────────────────
-    MAX_ENERGY = 350.0   # V2.0: raised from 150 to support r/K reproduction thresholds
-    MAX_HP     = 100.0   # V2.0: new secondary biological bar
-
-    def __init__(self, num_agents=150, max_capacity=180, num_food=400, width=1600, height=1200):
+    def __init__(self, num_agents=50, max_capacity=50, num_food=100, width=800, height=600):
         self.max_capacity = max_capacity
         self.num_food = num_food
         self.width = width
         self.height = height
         
         self.max_speed = 4.0
-        self.vision_range = 200.0   # V2.0: scaled up for larger map (was 150)
+        self.vision_range = 150.0
         
         self.agent_positions = np.zeros((max_capacity, 2), dtype=np.float32)
         self.agent_angles = np.zeros(max_capacity, dtype=np.float32)
         self.agent_velocity = np.zeros((max_capacity, 2), dtype=np.float32)
         self.agent_energy = np.zeros(max_capacity, dtype=np.float32)
-        self.agent_hp     = np.zeros(max_capacity, dtype=np.float32)  # V2.0: secondary biological bar
         self.agent_alive = np.zeros(max_capacity, dtype=bool)
         self.agent_age = np.zeros(max_capacity, dtype=np.int32)
         self.agent_signals = np.zeros(max_capacity, dtype=np.float32)
@@ -37,11 +32,8 @@ class Sandbox:
         self.true_sight = np.zeros(max_capacity, dtype=bool)
         
         # Tactical Shelters
-        self.thickets = np.zeros((5, 3), dtype=np.float32) # x, y, radius — 5 thickets for larger map
-        self.burrows  = np.zeros((2, 3), dtype=np.float32)  # 2 burrows for larger map
-
-        # V2.0: Friction Map (Biomes) — list of (cx, cy, radius, friction_factor)
-        self.friction_zones = []
+        self.thickets = np.zeros((3, 3), dtype=np.float32) # x, y, radius — 3 thickets (reduced)
+        self.burrows = np.zeros((1, 3), dtype=np.float32)   # 1 burrow only (reduced)
         
         # Stealth & Defense metrics
         self.is_camouflaged = np.zeros(max_capacity, dtype=bool)
@@ -69,8 +61,8 @@ class Sandbox:
         ]).astype(np.float32)  # 5 centros de cluster rotativos
         self.food_rotation_timer = 0
         
-        # Premium Zone (Oasis) — centered on new map at start
-        self.premium_pos = np.array([self.width / 2, self.height / 2], dtype=np.float32)
+        # Premium Zone (Oasis)
+        self.premium_pos = np.array([100.0, 100.0], dtype=np.float32)
         self.premium_timer = 0
         
         # Drought System
@@ -84,11 +76,11 @@ class Sandbox:
         self.new_carnivores_this_tick = np.zeros(max_capacity, dtype=bool)
         self.reward_signal = np.zeros(max_capacity, dtype=np.float32)
         
-        self.food_energy = np.zeros(self.num_food, dtype=np.float32) + 50.0  # V2.0: cluster baseline raised
+        self.food_energy = np.zeros(self.num_food, dtype=np.float32) + 40.0
         
         self._spawn_geography()
         
-        self.sensory_inputs = np.zeros((max_capacity, 16), dtype=np.float32)  # V2.0: +1 for HP input
+        self.sensory_inputs = np.zeros((max_capacity, 15), dtype=np.float32)
         
         self.big_crunch = False
         self.big_crunch_progress = 0.0
@@ -101,7 +93,6 @@ class Sandbox:
         self.agent_angles.fill(0.0)
         self.agent_velocity.fill(0.0)
         self.agent_energy.fill(0.0)
-        self.agent_hp.fill(0.0)         # V2.0: reset HP
         self.agent_alive.fill(False)
         self.agent_age.fill(0)
         self.agent_signals.fill(0.0)
@@ -129,40 +120,16 @@ class Sandbox:
         self.agent_positions[:num_agents, 0] = np.random.uniform(0, self.width, num_agents)
         self.agent_positions[:num_agents, 1] = np.random.uniform(0, self.height, num_agents)
         self.agent_angles[:num_agents] = np.random.uniform(0, 2*np.pi, num_agents)
-        self.agent_energy[:num_agents] = self.MAX_ENERGY * 0.50  # Start at 50% energy
-        self.agent_hp[:num_agents]     = self.MAX_HP              # V2.0: full HP on spawn
+        self.agent_energy[:num_agents] = 150.0
         self.agent_alive[:num_agents] = True
-
+        
         self.food_active.fill(False)
         self._spawn_food(self.num_food)
     def _spawn_geography(self):
-        # V2.0: 5 thickets distributed across the larger map
-        for i in range(5):
-            self.thickets[i] = [
-                np.random.uniform(150, self.width - 150),
-                np.random.uniform(150, self.height - 150),
-                np.random.uniform(50, 80)
-            ]
-        # V2.0: 2 burrows
-        for i in range(2):
-            self.burrows[i] = [
-                np.random.uniform(200, self.width - 200),
-                np.random.uniform(200, self.height - 200),
-                np.random.uniform(25, 35)
-            ]
-        # V2.0: Friction zones (Pantanos) — 3 biomes, fixed per geography seed
-        self.friction_zones = []
-        # Distribute across quadrants for spatial pressure
-        quadrant_centers = [
-            (self.width * 0.25, self.height * 0.25),
-            (self.width * 0.75, self.height * 0.50),
-            (self.width * 0.30, self.height * 0.75),
-        ]
-        for (qx, qy) in quadrant_centers:
-            cx = qx + np.random.uniform(-100, 100)
-            cy = qy + np.random.uniform(-80, 80)
-            radius = np.random.uniform(120, 200)
-            self.friction_zones.append((cx, cy, radius, 0.70))  # 0.70 factor = 30% velocity penalty
+        for i in range(3):  # 3 thickets — terrain is more open and dangerous
+            self.thickets[i] = [np.random.uniform(100, self.width-100), np.random.uniform(100, self.height-100), np.random.uniform(40, 65)]
+        for i in range(1):  # 1 burrow — hiding is a scarce resource
+            self.burrows[i] = [np.random.uniform(150, self.width-150), np.random.uniform(150, self.height-150), np.random.uniform(21, 30)]
         self.predation_events.clear()
 
     def _spawn_food(self, amount, overwrite=False):
@@ -207,9 +174,9 @@ class Sandbox:
             self.food_positions[spawn_idx, 1] = np.clip(cy + r * np.sin(ang), 0, self.height)
             self.food_active[spawn_idx] = True
             
-            # Oasis Energy: food spawned within 150px is worth 90.0 (V2.0 scaled)
+            # Oasis Energy: food spawned within 120px is worth 80.0
             dists_to_oasis = np.linalg.norm(self.food_positions[spawn_idx] - self.premium_pos, axis=1)
-            self.food_energy[spawn_idx] = np.where(dists_to_oasis < 150.0, 90.0, 50.0)
+            self.food_energy[spawn_idx] = np.where(dists_to_oasis < 120.0, 80.0, 40.0)
 
     def get_sensory_inputs(self):
         self.sensory_inputs.fill(0.0)
@@ -289,7 +256,7 @@ class Sandbox:
             hit_wall = (px < 0) | (px > self.width) | (py < 0) | (py > self.height)
             self.sensory_inputs[active_ids[hit_wall], i] = 1.0 
             
-        self.sensory_inputs[active_ids, 9] = self.agent_energy[active_ids] / self.MAX_ENERGY
+        self.sensory_inputs[active_ids, 9] = self.agent_energy[active_ids] / 150.0
         
         if A > 1:
             sig_emissions = self.agent_signals[active_ids]
@@ -323,10 +290,7 @@ class Sandbox:
             units_oasis = diffs_oasis / dists_oasis
             self.sensory_inputs[active_ids[herb_active_mask], 13:15] = units_oasis[herb_active_mask]
         # ──────────────────────────────────────────────────────────────────
-
-        # V2.0 Input 15: Normalized HP — allows brain to develop hp-aware strategies
-        self.sensory_inputs[active_ids, 15] = self.agent_hp[active_ids] / self.MAX_HP
-
+            
         return self.sensory_inputs
 
     @property
@@ -370,12 +334,7 @@ class Sandbox:
         self.premium_timer += 1
         if self.premium_timer >= 2000:
             self.premium_timer = 0
-            # V2.0: corners updated for 1600×1200 map
-            corners = [
-                (150, 150), (1450, 150),
-                (150, 1050), (1450, 1050),
-                (self.width // 2, self.height // 2)  # center as 5th option
-            ]
+            corners = [(100, 100), (700, 100), (100, 500), (700, 500)]
             choice = np.random.randint(0, len(corners))
             self.premium_pos = np.array(corners[choice], dtype=np.float32)
             self.food_active.fill(False)
@@ -485,18 +444,9 @@ class Sandbox:
         
         self.agent_velocity[:, 0] += vx
         self.agent_velocity[:, 1] += vy
-
-        # [KINETICS] Global atmospheric friction
-        self.agent_velocity *= 0.85
-
-        # [V2.0] Friction Map: apply per-zone velocity penalty vectorized
-        if len(self.friction_zones) > 0:
-            pos_alive = self.agent_positions  # shape (max_capacity, 2)
-            for (zx, zy, zr, zf) in self.friction_zones:
-                dz = pos_alive - np.array([zx, zy], dtype=np.float32)
-                in_zone = (dz[:, 0]**2 + dz[:, 1]**2) < (zr * zr)
-                in_zone &= alive_mask
-                self.agent_velocity[in_zone] *= zf
+        
+        # [KINETICS] Fricción atmosférica ajustada para peso e inercia real (más pesado y táctico)
+        self.agent_velocity *= 0.85 
         
         # Límite duro absoluto para evitar proyectiles infinitos
         hard_max_speed = 5.0
@@ -531,10 +481,9 @@ class Sandbox:
         # [FRENZY] Metabolic discount for hunters
         energy_cost[self.frenzy_timer > 0] *= 0.5
         
-        # [V2.0] Carrying Capacity: kicks in at 15% of max_capacity (passive guardrail at ~150% target)
-        cc_threshold = max(5, int(self.max_capacity * 0.15))
+        # [REBALANCE] Carrying Capacity: kicks in from 20 carnivores (vectorizado)
         carnivore_count = np.sum(self.is_carnivore & alive_mask)
-        cc_multiplier = 1.0 + np.maximum(0.0, (carnivore_count - cc_threshold) * 0.05)
+        cc_multiplier = 1.0 + np.maximum(0.0, (carnivore_count - 20) * 0.05)
         energy_cost[self.is_carnivore & alive_mask] *= cc_multiplier
         
         # Burrow Force Eviction
@@ -569,7 +518,7 @@ class Sandbox:
         # [LONGEVIDAD] Bloating penalty was removed to allow Sages to hoard energy without dying rapidly.
         infancy_mask = self.agent_age < 300
         self.agent_energy -= np.where(infancy_mask, 0.03, energy_cost)
-        self.agent_energy = np.clip(self.agent_energy, 0.0, self.MAX_ENERGY)
+        self.agent_energy = np.clip(self.agent_energy, 0.0, 150.0)
         
         # [REBALANCE] Hunger Magnetism removed — brain maintains full motor control even in starvation.
         # Thicket Energy Drain: agents inside thickets lose 0.05 energy per tick
@@ -615,47 +564,30 @@ class Sandbox:
         # Spawn protection decreasing safely outside bounds
         self.invulnerability_frames[alive_indices] = np.maximum(0, self.invulnerability_frames[alive_indices] - 1)
         
-        # 2. Bite Collisions / Active Predation (Optimized Vectorized Phase)
+        # 2. Bite Collisions / Active Predation
         active_biters = np.where(biters)[0]
         if len(active_biters) > 0 and len(alive_indices) > 1:
-            # Broad-phase: only calculate distances for active biters vs everyone alive
-            # Using squared distance to avoid expensive sqrt
-            bite_radius_sq = 15.0**2
-            pos_biters = self.agent_positions[active_biters]
-            pos_all    = self.agent_positions
-            
-            for i, b_idx in enumerate(active_biters):
+            for b_idx in active_biters:
                 if self.kill_cooldown[b_idx] > 0 or self.agent_energy[b_idx] <= 0:
                     continue
                 
-                # Check distances to all agents using squared differences (fast)
-                dx = pos_all[:, 0] - pos_biters[i, 0]
-                dy = pos_all[:, 1] - pos_biters[i, 1]
-                dist_sq = dx**2 + dy**2
-                
-                # Filter visible targets within 15px
-                visible_targets = np.where((dist_sq < bite_radius_sq) & self.agent_alive)[0]
+                # Predators can bite anyone visible to them (handles Titan tracking and normal camo)
+                visible_targets = np.where(dist_a[b_idx] < 15.0)[0]
                 for victim in visible_targets:
-                    if victim == b_idx: continue # Can't bite self
                     if self.in_burrow[victim] or self.invulnerability_frames[victim] > 0 or self.agent_energy[victim] <= 0: continue
                     
                     # Successful bite!
-                    # [V2.0 DUAL-BAR] Bite drains VICTIM HP directly. Energy transferred to attacker.
-                    # Predator HP drain from combat: 25 HP per successful bite.
-                    self.agent_hp[victim] -= 25.0
-
-                    # Trophic gain to attacker
+                    # [THERMODYNAMICS] Eating herbivores always yields at least 40. Eating carnivores yields only 50% of their current energy (toxic meat).
                     if self.is_carnivore[victim]:
-                        energy_stolen = 20.0 + max(0.0, self.agent_energy[victim] * 0.40)
+                        energy_stolen = max(5.0, self.agent_energy[victim] * 0.5)
                     else:
-                        energy_stolen = 20.0 + self.agent_energy[victim] * 0.75  # Rich harvest
-
-                    self.agent_energy[b_idx] = min(self.MAX_ENERGY, self.agent_energy[b_idx] + energy_stolen)
+                        energy_stolen = np.maximum(40.0, self.agent_energy[victim]) # Massive harvest from pure prey
+                        
+                    self.agent_energy[b_idx] = min(150.0, self.agent_energy[b_idx] + energy_stolen)
                     self.reward_signal[b_idx] = 1.0
                     v_pos = self.agent_positions[victim].copy()
                     self.predation_events.append((v_pos[0], v_pos[1], victim))
-                    # V2.0: victim energy zeroed so kill triggers on hp<=0, not energy<=0
-                    self.agent_energy[victim] = 0.0
+                    self.agent_energy[victim] = -10.0
                     
                     # Post-kill cooldown
                     self.kill_cooldown[b_idx] = 50
@@ -673,11 +605,11 @@ class Sandbox:
                     if self.is_carnivore[victim]:
                         self.kill_count[b_idx] += self.kill_count[victim]
                     
-                    if self.agent_hp[victim] <= 0:
+                    if self.agent_energy[victim] <= 0:
                         self.kill_count[b_idx] += 1
                         if self.kill_count[b_idx] > 0 and self.kill_count[b_idx] % 7 == 0:
                             self.legendary_pulse_frames = 15
-
+                    
                     break # Only bite one per tick
         
         # [ALARMA EMERGENTE] Atribución de crédito vectorial por señal de alarma útil
@@ -701,71 +633,37 @@ class Sandbox:
             # Reduced to 0.05 to prevent 'Wireheading Seizures' where +1.0 every frame saturates all motor weights!
             successful = sig_indices[assists_gained > 0]
             self.reward_signal[successful] += 0.05
-        # 3. Eating Passive Flora (V2.0 Spatial Optimization)
+        
+        # 3. Eating Passive Flora
         if np.any(self.food_active) and np.any(self.agent_alive):
             active_food_idx = np.where(self.food_active)[0]
             
-            # Grid cell_size = 100px. Agents only check their cell + neighbors.
-            cell_size = 100.0
-            food_grid = {}
-            for f_i in active_food_idx:
-                fx, fy = self.food_positions[f_i]
-                gx, gy = int(fx // cell_size), int(fy // cell_size)
-                if (gx, gy) not in food_grid: food_grid[(gx, gy)] = []
-                food_grid[(gx, gy)].append(f_i)
-
+            diffs = self.agent_positions[alive_indices, np.newaxis, :] - self.food_positions[active_food_idx][np.newaxis, :, :]
+            dist_sq = diffs[:, :, 0]**2 + diffs[:, :, 1]**2
+            
+            # [REBALANCE] "Caminar para Pastar": Evita manadas de langostas a supervelocidad obligándolos a frenar para comer.
             valid_grazers = ~self.is_carnivore[alive_indices] & (speed_sq[alive_indices] < 16.0) # Speed < 4.0
-            grazing_indices = alive_indices[valid_grazers]
+            eaters = np.any(dist_sq < 100.0, axis=1) & valid_grazers
             
-            global_foods_to_die = []
-            healed_agents = []
-
-            for idx in grazing_indices:
-                ax, ay = self.agent_positions[idx]
-                agx, agy = int(ax // cell_size), int(ay // cell_size)
-                # Check 3x3 neighbor cells
-                found_food = False
-                for dx_g in [-1, 0, 1]:
-                    for dy_g in [-1, 0, 1]:
-                        cell = (agx + dx_g, agy + dy_g)
-                        if cell in food_grid:
-                            for f_idx in food_grid[cell]:
-                                if not self.food_active[f_idx]: continue
-                                fx, fy = self.food_positions[f_idx]
-                                if (ax - fx)**2 + (ay - fy)**2 < 100.0: # Dist < 10px
-                                    global_foods_to_die.append(f_idx)
-                                    healed_agents.append(idx)
-                                    self.food_active[f_idx] = False
-                                    found_food = True
-                                    break
-                        if found_food: break
-                    if found_food: break
-            
-            if len(healed_agents) > 0:
-                healed_agents = np.array(healed_agents)
-                global_foods_to_die = np.array(global_foods_to_die)
+            if np.any(eaters):
+                closest_food_local = np.argmin(dist_sq, axis=1)
+                eater_mask = eaters & (dist_sq[np.arange(len(alive_indices)), closest_food_local] < 100.0)
+                
+                food_to_die = closest_food_local[eater_mask]
+                global_foods_to_die = active_food_idx[food_to_die]
+                self.food_active[global_foods_to_die] = False
+                
+                healed_agents = alive_indices[eater_mask]
                 self.reward_signal[healed_agents] = 1.0
+                # [PREMIUM] Food within Oasis is worth 80.0, else density-scaled baseline
                 food_dens_mult = np.clip(self.num_food / max(1, np.sum(self.food_active)), 0.8, 1.5)
+                # Base energy is taken from the food item itself (set in _spawn_food)
                 this_food_energy = self.food_energy[global_foods_to_die] * food_dens_mult
-                self.agent_energy[healed_agents] = np.clip(
-                    self.agent_energy[healed_agents] + this_food_energy, 0.0, self.MAX_ENERGY
-                )
+                self.agent_energy[healed_agents] = np.clip(self.agent_energy[healed_agents] + this_food_energy, 0, 150.0)
                 self._spawn_food(len(np.unique(global_foods_to_die)))
 
-        # 4. Dual-Bar Death Hierarchy (V2.0)
-        # Starvation: if energy == 0, drain HP at -2.0/tick (The "Agony" Factor)
-        # This gives agents time to react to the HP sensory input.
-        starving_mask = (self.agent_energy <= 0.0) & self.agent_alive
-        self.agent_hp[starving_mask] = np.maximum(0.0, self.agent_hp[starving_mask] - 2.0)
-
-        # Homeostasis: if energy > 70% max, burn 0.02*max_energy to heal +0.5 HP
-        healing_mask = (self.agent_energy / self.MAX_ENERGY > 0.70) & self.agent_alive & (self.agent_hp < self.MAX_HP)
-        self.agent_energy[healing_mask] -= 0.02 * self.MAX_ENERGY
-        self.agent_hp[healing_mask] = np.minimum(self.agent_hp[healing_mask] + 0.5, self.MAX_HP)
-        self.reward_signal[healing_mask] += 0.10  # Hebbian reinforcement for homeostasis
-
-        # Real death trigger: hp <= 0 (replaces old energy <= 0 trigger)
-        died_this_tick = (self.agent_hp <= 0) & self.agent_alive
+        # 4. Handle Starvation & Core Async Replacement
+        died_this_tick = (self.agent_energy <= 0) & self.agent_alive
         dead_indices = np.where(died_this_tick)[0]
         alive_post = np.where(self.agent_alive & ~died_this_tick)[0]
         
@@ -780,9 +678,8 @@ class Sandbox:
                 self.agent_positions[died, 1] = spawn_y
                 self.agent_angles[died] = np.random.uniform(0, 2 * np.pi)
                 
-                # [V2.0] Spawn energy: 40% of max. Prevents instant reproduction on tick 1.
-                self.agent_energy[died] = self.MAX_ENERGY * 0.40
-                self.agent_hp[died]     = self.MAX_HP          # V2.0: full HP on respawn
+                # [REBALANCE] Spawn estandarizado: 100.0 energía. (Previene que un recién nacido clone instantáneamente en el tick 1)
+                self.agent_energy[died] = 100.0
                 
                 self.agent_age[died] = 0
                 # New agents always spawn as herbivores regardless of alpha type
@@ -805,9 +702,9 @@ class Sandbox:
             self.agent_alive[died_this_tick] = False
 
         # Independent High-End Clone Spawns (Mitosis)
-        # V2.0 Asymmetric r/K thresholds (Fase 2.1 values — full r/K in Fase 2.3)
-        herb_clone_ready = self.agent_alive & ~self.is_carnivore & (self.agent_energy >= 210.0)  # 60% of MAX_ENERGY
-        carn_clone_ready = self.agent_alive & self.is_carnivore  & (self.agent_energy >= 280.0)  # 80% of MAX_ENERGY
+        # Herbivores reproduce min marginally faster (140 vs 145)
+        herb_clone_ready = self.agent_alive & ~self.is_carnivore & (self.agent_energy >= 140.0)
+        carn_clone_ready = self.agent_alive & self.is_carnivore  & (self.agent_energy >= 145.0)
         ready_to_clone = np.where(herb_clone_ready | carn_clone_ready)[0]
         for parent_id in ready_to_clone:
             inactive_slots = np.where(~self.agent_alive)[0]
@@ -815,16 +712,11 @@ class Sandbox:
                 child_id = inactive_slots[0]
                 self.agent_alive[child_id] = True
                 self.agent_positions[child_id] = self.agent_positions[parent_id] + np.random.uniform(-5, 5, 2)
-                self.agent_angles[child_id] = self.agent_angles[parent_id] + np.pi
-
-                # V2.0 Asymmetric reproduction costs
-                if self.is_carnivore[parent_id]:
-                    repro_cost = self.agent_energy[parent_id] * 0.65  # Predator: 65% energy cost
-                else:
-                    repro_cost = self.agent_energy[parent_id] * 0.40  # Herbivore: 40% energy cost
-                self.agent_energy[parent_id] -= repro_cost
-                self.agent_energy[child_id] = repro_cost * 0.50  # Child gets 50% of what parent spent
-                self.agent_hp[child_id]     = self.MAX_HP * 0.50  # V2.0: child born at 50% HP
+                self.agent_angles[child_id] = self.agent_angles[parent_id] + np.pi 
+                
+                # Parent loses 60 energy to spawn child, maintaining a healthy >80 range
+                self.agent_energy[parent_id] -= 60.0
+                self.agent_energy[child_id] = 60.0
                 self.agent_age[child_id] = 0
                 self.is_carnivore[child_id] = self.is_carnivore[parent_id]
                 self.kill_count[child_id] = 0
@@ -839,8 +731,8 @@ class Sandbox:
                 self.clones_produced_this_tick.append((parent_id, child_id))
         
         self.agent_age[self.agent_alive] += 1
-
+        
         # [REBALANCE] Reduce continuous starvation penalty so it doesn't violently erase Hebbian learning
-        self.reward_signal = np.where((self.agent_energy < 0.10 * self.MAX_ENERGY) & self.agent_alive, -0.05, self.reward_signal)
+        self.reward_signal = np.where((self.agent_energy < 30) & self.agent_alive, -0.05, self.reward_signal)
         
         return not np.any(self.agent_alive)
